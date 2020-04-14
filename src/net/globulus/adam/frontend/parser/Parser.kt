@@ -8,7 +8,7 @@ import java.util.*
 class Parser(private val tokens: List<Token>) {
 
     private var current = 0
-    private val stack = Stack<Scope>()
+    private val scopeStack = Stack<Scope>()
 
     // Primitive types
     private val symType = Sym("Sym")
@@ -17,7 +17,7 @@ class Parser(private val tokens: List<Token>) {
 
     init {
         // Init root scope and add primitive types to it
-        stack += Scope(null).apply {
+        scopeStack += Scope(null).apply {
             syms.apply {
                 add(symType)
                 add(numType)
@@ -71,11 +71,11 @@ class Parser(private val tokens: List<Token>) {
     private fun typedef(): Boolean {
         if (peek.literal == TYPEDEF_START) {
             advance()
-            val sym = consume(TokenType.SYM, "Need Sym for typedef").literal as Sym
+            val sym = consumeSym("Need Sym for typedef")
             val type = type()
             consume(TokenType.NEWLINE, "Need newline after typedef")
             ParserLog.v("Set type alias for $sym as $type")
-            stack.peek().typeAliases.putIfAbsent(sym, type)
+            scopeStack.peek().typeAliases.putIfAbsent(sym, type)
             return true
         }
         return false
@@ -83,7 +83,7 @@ class Parser(private val tokens: List<Token>) {
 
     private fun type(): Type {
         if (match(TokenType.SYM)) {
-            return previous.literal as Sym
+            return previousSym
         }
         return structListOrBlockdef()
     }
@@ -95,7 +95,7 @@ class Parser(private val tokens: List<Token>) {
         }
         var rec: Sym? = null
         if (match(TokenType.SYM)) {
-            rec = previous.literal as Sym
+            rec = previousSym
             consume(TokenType.DOT, "Expected . after rec")
         }
         if (match(TokenType.LEFT_BRACE)) {
@@ -110,24 +110,54 @@ class Parser(private val tokens: List<Token>) {
         return structList()
     }
 
-    fun structList(): StructList {
-        consume(TokenType.LEFT_BRACKET, "Expected [ at start of struct list")
-        val list = StructList()
-        while (!match(TokenType.RIGHT_BRACKET)) {
-            // TODO
-        }
-        return list
+    private fun structList(): StructList {
+        return StructList(parseListWithAtLeastOneElement("struct") {
+            val type = type()
+            val sym = consumeSym("Expected Sym after type in struct list prop")
+            var expr: Expr? = null
+            if (!check(TokenType.RIGHT_BRACKET, TokenType.COMMA)) {
+                expr = grouping()
+            }
+            StructList.Prop(type, sym, expr)
+        })
     }
 
     private fun genList(): GenList? {
-        if (match(TokenType.LEFT_BRACKET)) {
-            val list = GenList()
-            while (!match(TokenType.RIGHT_BRACKET)) {
-                // TODO
-            }
-            return list
+        return if (check(TokenType.LEFT_BRACKET)) {
+            GenList(parseListWithAtLeastOneElement("gen") {
+                var type: Type? = null
+                var sym: Sym
+                if (match(TokenType.SYM)) {
+                    sym = previousSym
+                    if (match(TokenType.SYM)) {
+                        type = sym
+                        sym = previousSym
+                    }
+                } else {
+                    type = type()
+                    sym = consumeSym("Expected Sym after type in gen list prop")
+                }
+                GenList.Prop(type, sym)
+            })
+        } else {
+            null
         }
-        return null
+    }
+
+    private fun <T> parseListWithAtLeastOneElement(tag: String, propParser: () -> T): List<T> {
+        consume(TokenType.LEFT_BRACKET, "Expected [ at start of $tag list")
+        matchAllNewlines()
+        val props = mutableListOf<T>()
+        do {
+            matchAllNewlines()
+            props += propParser()
+            matchAllNewlines()
+            if (match(TokenType.RIGHT_BRACKET)) {
+                break
+            }
+            consume(TokenType.COMMA, "Expected , as $tag list prop separator")
+        } while (true)
+        return props
     }
 
     private fun grouping(): Expr {
@@ -174,13 +204,41 @@ class Parser(private val tokens: List<Token>) {
     }
 
     private fun rawList(): RawList {
-        consume(TokenType.LEFT_BRACKET, "Expected [ at start of struct list")
-        val list = RawList()
-        while (!match(TokenType.RIGHT_BRACKET)) {
-            val expr = grouping()
-            // TODO
+        return RawList(parseRawOrArgList("raw", TokenType.LEFT_BRACKET, TokenType.RIGHT_BRACKET))
+    }
+
+    private fun parseRawOrArgList(tag: String,
+                                  opener: TokenType,
+                                  terminator: TokenType
+    ): List<RawList.Prop> {
+        consume(opener, "Expected $opener at start of $tag list")
+        matchAllNewlines()
+        val props = mutableListOf<RawList.Prop>()
+        while (true) {
+            matchAllNewlines()
+            if (match(terminator)) {
+                break
+            }
+            var sym: Sym? = null
+            val expr: Expr
+            if (match(TokenType.SYM)) {
+                if (check(terminator, TokenType.COMMA)) {
+                    expr = previousSym
+                } else {
+                    sym = previousSym
+                    expr = grouping()
+                }
+            } else {
+                expr = grouping()
+            }
+            props += RawList.Prop(sym, expr)
+            matchAllNewlines()
+            if (match(terminator)) {
+                break
+            }
+            consume(TokenType.COMMA, "Expected , as $tag list prop separator")
         }
-        return list
+        return props
     }
 
     private fun blockOrCall(): Expr {
@@ -202,6 +260,7 @@ class Parser(private val tokens: List<Token>) {
             consume(TokenType.NEWLINE, "Expected newline after block def inside block")
         }
         val body = mutableListOf<Expr>()
+        scopeStack.push(Scope(scopeStack.peek()))
         while (!match(TokenType.RIGHT_BRACE)) {
             body += stmtLine()
         }
@@ -219,22 +278,17 @@ class Parser(private val tokens: List<Token>) {
         return Call(op, args)
     }
 
-    fun getter(): Expr {
+    private fun getter(): Expr {
         val syms = PriorityQueue<Sym>()
-        syms.add(consume(TokenType.SYM, "Expected at least one Sym for Getter").literal as Sym)
+        syms.add(consumeSym("Expected at least one Sym for Getter"))
         while (match(TokenType.DOT)) {
-            syms.add(consume(TokenType.SYM, "Expected Sym after . in Getter").literal as Sym)
+            syms.add(consumeSym("Expected Sym after . in Getter"))
         }
         return Getter(syms)
     }
 
-    fun argList(): ArgList {
-        consume(TokenType.LEFT_PAREN, "Expected ( at start of arg list")
-        val list = ArgList()
-        while (!match(TokenType.RIGHT_PAREN)) {
-            // TODO
-        }
-        return list
+    private fun argList(): ArgList {
+        return ArgList(parseRawOrArgList("arg", TokenType.LEFT_PAREN, TokenType.RIGHT_PAREN))
     }
 
     private fun matchAllNewlines() {
@@ -244,11 +298,9 @@ class Parser(private val tokens: List<Token>) {
     }
 
     private fun match(vararg types: TokenType): Boolean {
-        for (type in types) {
-            if (check(type)) {
-                advance()
-                return true
-            }
+        if (check(*types)) {
+            advance()
+            return true
         }
         return false
     }
@@ -260,11 +312,18 @@ class Parser(private val tokens: List<Token>) {
         throw ParseException(peek, message)
     }
 
-    private fun check(type: TokenType): Boolean {
+    private fun consumeSym(message: String) = consume(TokenType.SYM, message).literal as Sym
+
+    private fun check(vararg types: TokenType): Boolean {
         if (isAtEnd) {
             return false
         }
-        return peek.type == type
+        for (type in types) {
+            if (peek.type == type) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun advance(): Token {
@@ -283,6 +342,8 @@ class Parser(private val tokens: List<Token>) {
     private val peek get() = tokens[current]
 
     private val previous get() = tokens[current - 1]
+
+    private val previousSym get() = previous.literal as Sym
 
     private fun peekSequence(vararg types: TokenType): Boolean {
         if (current + types.size >= tokens.size) {

@@ -12,10 +12,7 @@ class Sym(val value: String) : Value, Type {
     }
 
     override fun equals(other: Any?): Boolean {
-        if (other is Sym) {
-            return value == other.value
-        }
-        return false
+        return value == (other as? Sym)?.value
     }
 
     override fun hashCode(): Int {
@@ -29,10 +26,7 @@ class Str(val value: String) : Value {
     }
 
     override fun equals(other: Any?): Boolean {
-        if (other is Str) {
-            return value == other.value
-        }
-        return false
+        return value == (other as? Str)?.value
     }
 
     override fun hashCode(): Int {
@@ -46,10 +40,7 @@ class Num(val value: Double) : Value {
     }
 
     override fun equals(other: Any?): Boolean {
-        if (other is Num) {
-            return value == other.value
-        }
-        return false
+        return value == (other as? Num)?.value
     }
 
     override fun hashCode(): Int {
