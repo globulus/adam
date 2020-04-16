@@ -21,8 +21,12 @@ class Parser(private val tokens: List<Token>) {
         val exprs = mutableListOf<Expr>()
         matchAllNewlines()
         while (!isAtEnd) {
-            stmtLine()?.let {
-                exprs += it
+            val stmtsExprs = stmtLine()
+            if (stmtsExprs.isNotEmpty()) {
+                if (stmtsExprs.size != 1) {
+                    throw ParseException(previous, "More than one expression on a line, desugaring failed")
+                }
+                exprs += stmtsExprs[0]
             }
             matchAllNewlines()
         }
@@ -31,9 +35,9 @@ class Parser(private val tokens: List<Token>) {
 
     private fun stmtLine() = stmt(false, TokenType.NEWLINE)
 
-    private fun valueLine(delimiter: TokenType) = stmt(true, TokenType.COMMA, delimiter)
+    private fun valueLine(delimiter: TokenType) = stmt(true, TokenType.COMMA, TokenType.NEWLINE, delimiter)
 
-    private fun stmt(rollBack: Boolean, vararg delimiters: TokenType): Expr? {
+    private fun stmt(rollBack: Boolean, vararg delimiters: TokenType): List<Expr> {
         val exprs = mutableListOf<Expr>()
         while (!isAtEnd && !match(*delimiters)) {
             // Check if the line is a typedef or an expr
@@ -45,16 +49,10 @@ class Parser(private val tokens: List<Token>) {
         if (rollBack) {
             rollBack()
         }
-        if (exprs.isEmpty()) {
-            return null
-        }
         ParserLog.v("Parsed on line $exprs")
         val desugared = DesugarDaddy.hustle(currentScope, exprs)
         ParserLog.ds("Desugared $desugared")
-        if (desugared.size != 1) {
-            throw ParseException(previous, "More than one expression on a line, desugaring failed")
-        }
-        return desugared[0]
+        return desugared
     }
 
     private fun typedef(): Boolean {
@@ -158,7 +156,11 @@ class Parser(private val tokens: List<Token>) {
     private fun grouping(): Expr {
         val hasOpeningParen = match(TokenType.LEFT_PAREN)
         val expr = if (hasOpeningParen) {
-            valueLine(TokenType.RIGHT_PAREN)!!
+            val exprs = valueLine(TokenType.RIGHT_PAREN)
+            if (exprs.size != 1) {
+                throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
+            }
+            exprs[0]
         } else {
             value(true)
         }
@@ -171,19 +173,37 @@ class Parser(private val tokens: List<Token>) {
     private fun value(primaryGetter: Boolean): Expr {
         val getter = getter(primaryGetter)
         return if (peek.type == TokenType.LEFT_PAREN) {
-            val args = argList()
-            val call = Call(currentScope, getter, args)
-            if (match(TokenType.DOT)) {
-                when (val next = value(false)) {
-                    is Getter -> call + next
-                    is Call -> call + next
-                    else -> throw ParseException(previous, "Next chain element must be a Getter or a Call, instead it's $next")
-                }
-            } else {
-                call
-            }
+            call(getter)
         } else {
             getter
+        }
+    }
+
+    private fun call(getter: Getter): Expr {
+        val storedCurrent = current
+        val args = try {
+            argList()
+        } catch (e: ParseException) { // Let's try it as a value line
+            current = storedCurrent
+            val exprs = valueLine(TokenType.RIGHT_PAREN)
+            if (exprs.size != 1) {
+                throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
+            }
+            ArgList(currentScope, listOf(RawList.Prop(null, exprs[0])))
+        }
+        return simpleCall(getter, args)
+    }
+
+    private fun simpleCall(getter: Getter, args: ArgList): Expr {
+        val call = Call(currentScope, getter, args).patchType(false)
+        return if (match(TokenType.DOT)) {
+            when (val next = value(false)) {
+                is Getter -> call + next
+                is Call -> call + next
+                else -> throw ParseException(previous, "Next chain element must be a Getter or a Call, instead it's $next")
+            }
+        } else {
+            call
         }
     }
 
@@ -201,7 +221,7 @@ class Parser(private val tokens: List<Token>) {
         while (match(TokenType.DOT)) {
             syms += consumeSym("Expected a Sym after . in Getter")
         }
-        return Getter(currentScope, origin, syms)
+        return Getter(origin, syms).patchType(currentScope, false)
     }
 
     private fun primitive(): Expr {

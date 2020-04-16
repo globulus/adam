@@ -37,7 +37,7 @@ class Block(val args: StructList?,
 class Call(val scope: Scope,
            val op: Getter,
            val args: ArgList) : Expr {
-    override var type: Type? = TypeInfernal.infer(scope, this)
+    override var type: Type? = null
 
     override fun eval(args: ArgList?): Value {
         TODO("Not yet implemented")
@@ -47,8 +47,12 @@ class Call(val scope: Scope,
         return op.toString() + args.toString()
     }
 
+    fun patchType(allTheWay: Boolean) = apply {
+        type = TypeInfernal.infer(scope, this, allTheWay)
+    }
+
     operator fun plus(getter: Getter): Getter {
-        return Getter(scope, this, getter.combineOriginSymWithSyms())
+        return Getter(this, getter.combineOriginSymWithSyms())
     }
 
     operator fun plus(other: Call): Call {
@@ -56,12 +60,10 @@ class Call(val scope: Scope,
     }
 }
 
-class Getter(val scope: Scope,
-             val origin: Expr,
-             val syms: List<Sym>) : Expr {
-    constructor(scope: Scope, origin: Expr, vararg syms: Sym) : this(scope, origin, syms.asList())
+class Getter(val origin: Expr, val syms: List<Sym>) : Expr {
+    constructor(origin: Expr, vararg syms: Sym) : this(origin, syms.asList())
 
-    override var type: Type? = TypeInfernal.infer(scope, this)
+    override var type: Type? = null
 
     override fun eval(args: ArgList?): Value {
         TODO("Not yet implemented")
@@ -73,6 +75,10 @@ class Getter(val scope: Scope,
         } else {
             "$origin.${syms.joinToString(".")}"
         }
+    }
+
+    fun patchType(scope: Scope, allTheWay: Boolean) = apply {
+        type = TypeInfernal.infer(scope, this, allTheWay)
     }
 
     internal fun combineOriginSymWithSyms(): List<Sym> {

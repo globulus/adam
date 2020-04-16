@@ -31,7 +31,7 @@ class Sym(val value: String) : Value {
      */
     fun patchType(scope: Scope, patchToSelf: Boolean): Sym {
         type = try {
-            TypeInfernal.infer(scope, this)
+            TypeInfernal.infer(scope, this, true)
         } catch (e: TypeInferno) {
             if (patchToSelf) {
                 this
