@@ -1,14 +1,18 @@
 package net.globulus.adam.api
 
-interface Value : Expr {
+import net.globulus.adam.frontend.parser.Scope
+
+interface Value : Expr, Type {
     override fun eval(args: ArgList?): Value {
         return this
     }
 }
 
-class Sym(val value: String) : Value, Type {
+class Sym(val value: String) : Value {
+    override var type: Type? = this
+
     override fun toString(): String {
-        return "$value\""
+        return value
     }
 
     override fun equals(other: Any?): Boolean {
@@ -18,9 +22,20 @@ class Sym(val value: String) : Value, Type {
     override fun hashCode(): Int {
         return value.hashCode()
     }
+
+    fun patchType(scope: Scope): Sym {
+//        type = TypeInfernal.infer(scope, this)
+        return this
+    }
+
+    companion object {
+        val EMPTY = Sym("")
+    }
 }
 
 class Str(val value: String) : Value {
+    override var type: Type? = this
+
     override fun toString(): String {
         return "\"$value\""
     }
@@ -35,6 +50,8 @@ class Str(val value: String) : Value {
 }
 
 class Num(val value: Double) : Value {
+    override var type: Type? = this
+
     override fun toString(): String {
         return value.toString()
     }

@@ -74,7 +74,7 @@ class Lexer(private val source: String) {
 
     private fun comment() {
         if (match('"')) { // Multi line
-            while (!matchAll("\"\"\"")) {
+            while (!matchAll("\"\"\"\"")) {
                 if (peek() == '\n') {
                     line += 1
                 }
