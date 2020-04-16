@@ -26,7 +26,7 @@ class Block(val args: StructList?,
             append(type.toString())
             append("\n")
             for (line in body) {
-                append(body.toString())
+                append(line.toString())
                 append("\n")
             }
             append("}")

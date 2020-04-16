@@ -20,11 +20,11 @@ object DesugarDaddy {
                     val memberType = TypeInfernal.infer(scope, list, e1Type)
                     (memberType as? Blockdef)?.let {
                         if (it.args?.props?.isNotEmpty() == true) {
-                            ParserLog.ds("Found primitive member $e1 of type $memberType on $e2, returning unary desugar")
-                            Call(scope, Getter(scope, e2, e1Type), ArgList(scope, emptyList()))
-                        } else {
                             ParserLog.ds("Member is a non-primitive blockdef: $it, bailing")
                             null
+                        } else {
+                            ParserLog.ds("Found primitive member $e1 of type $memberType on $e2, returning unary desugar")
+                            Call(scope, Getter(scope, e2, e1Type), ArgList(scope, emptyList()))
                         }
                     } ?: run {
                         ParserLog.ds("Member is not a Blockdef: $memberType, bailing")

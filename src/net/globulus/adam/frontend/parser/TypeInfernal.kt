@@ -19,9 +19,13 @@ object TypeInfernal {
         var currentScope: Scope? = scope
         do {
             currentScope?.typeAliases?.get(sym)?.let {
-                return it
+                return if (it is Sym) {
+                    infer(scope, it)
+                } else {
+                    it
+                }
             }
-            currentScope = scope.parent
+            currentScope = currentScope?.parent
         } while (currentScope != null)
         throw TypeInferno("Undefined sym $sym")
     }

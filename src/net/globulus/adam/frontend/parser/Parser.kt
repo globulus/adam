@@ -12,37 +12,18 @@ class Parser(private val tokens: List<Token>) {
     private val scopeStack = Stack<Scope>()
     private val currentScope get() = scopeStack.peek()
 
-    // Primitive types
-    private val symType = Sym("Sym")
-    private val numType = Sym("Num")
-    private val strType = Sym("Str")
-
     init {
         // Init root scope and add primitive types to it
-        scopeStack += Scope(null).apply {
-            syms.apply {
-                add(symType)
-                add(numType)
-                add(strType)
-            }
-            types.apply {
-                add(symType)
-                add(numType)
-                add(strType)
-            }
-            typeAliases.apply {
-                put(symType, symType)
-                put(numType, numType)
-                put(strType, strType)
-            }
-        }
+        scopeStack += Scope(null)
     }
 
     fun parse(): List<Expr> {
         val exprs = mutableListOf<Expr>()
         matchAllNewlines()
         while (!isAtEnd) {
-            exprs.addAll(stmtLine())
+            stmtLine()?.let {
+                exprs += it
+            }
             matchAllNewlines()
         }
         return exprs
@@ -52,7 +33,7 @@ class Parser(private val tokens: List<Token>) {
 
     private fun valueLine(delimiter: TokenType) = stmt(true, TokenType.COMMA, delimiter)
 
-    private fun stmt(rollBack: Boolean, vararg delimiters: TokenType): List<Expr> {
+    private fun stmt(rollBack: Boolean, vararg delimiters: TokenType): Expr? {
         val exprs = mutableListOf<Expr>()
         while (!isAtEnd && !match(*delimiters)) {
             // Check if the line is a typedef or an expr
@@ -64,10 +45,16 @@ class Parser(private val tokens: List<Token>) {
         if (rollBack) {
             rollBack()
         }
+        if (exprs.isEmpty()) {
+            return null
+        }
         ParserLog.v("Parsed on line $exprs")
         val desugared = DesugarDaddy.hustle(currentScope, exprs)
         ParserLog.ds("Desugared $desugared")
-        return desugared
+        if (desugared.size != 1) {
+            throw ParseException(previous, "More than one expression on a line, desugaring failed")
+        }
+        return desugared[0]
     }
 
     private fun typedef(): Boolean {
@@ -171,12 +158,7 @@ class Parser(private val tokens: List<Token>) {
     private fun grouping(): Expr {
         val hasOpeningParen = match(TokenType.LEFT_PAREN)
         val expr = if (peek.type == TokenType.LEFT_PAREN) {
-            val values = valueLine(TokenType.RIGHT_PAREN)
-            if (values.size == 1) {
-                values[0]
-            } else {
-                throw ParseException(previous, "More than one expression inside grouping $values")
-            }
+            valueLine(TokenType.RIGHT_PAREN)!!
         } else {
             value(true)
         }
@@ -213,7 +195,7 @@ class Parser(private val tokens: List<Token>) {
         val origin = if (primary) {
             primitive()
         } else {
-            consumeSym("Expected a Sym for secondary getter").patchType(currentScope)
+            consumeSym("Expected a Sym for secondary getter").patchType(currentScope, false)
         }
         val syms = mutableListOf<Sym>()
         while (match(TokenType.DOT)) {
@@ -224,7 +206,7 @@ class Parser(private val tokens: List<Token>) {
 
     private fun primitive(): Expr {
         if (match(TokenType.SYM)) {
-            return previousSym.patchType(currentScope)
+            return previousSym.patchType(currentScope, true)
         }
         if (match(TokenType.NUM, TokenType.STR)) {
             return previous.literal as Expr
@@ -305,10 +287,14 @@ class Parser(private val tokens: List<Token>) {
             }
         }
         val body = mutableListOf<Expr>()
-        val bodyScope = Scope(currentScope)
+        val bodyScope = Scope(currentScope).apply {
+            args?.let {
+                typeAliases.putAll(args.props.map { it.sym to it.type })
+            }
+        }
         scopeStack.push(bodyScope)
         while (!match(TokenType.RIGHT_BRACE)) {
-            body += stmtLine()
+            body += stmtLine()!!
         }
         if (ret == null) {
             ret = TypeInfernal.infer(bodyScope, body)
