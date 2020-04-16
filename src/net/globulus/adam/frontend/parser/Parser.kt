@@ -157,7 +157,7 @@ class Parser(private val tokens: List<Token>) {
 
     private fun grouping(): Expr {
         val hasOpeningParen = match(TokenType.LEFT_PAREN)
-        val expr = if (peek.type == TokenType.LEFT_PAREN) {
+        val expr = if (hasOpeningParen) {
             valueLine(TokenType.RIGHT_PAREN)!!
         } else {
             value(true)
@@ -209,7 +209,9 @@ class Parser(private val tokens: List<Token>) {
             return previousSym.patchType(currentScope, true)
         }
         if (match(TokenType.NUM, TokenType.STR)) {
-            return previous.literal as Expr
+            return (previous.literal as Expr).apply {
+                type = TypeInfernal.infer(currentScope, this)
+            }
         }
         return when (peek.type) {
             TokenType.LEFT_BRACKET -> structListOrRawList()
@@ -343,7 +345,7 @@ class Parser(private val tokens: List<Token>) {
 
     private fun advance(): Token {
         if (!isAtEnd) {
-            current += 1
+            current++
         }
         return previous
     }

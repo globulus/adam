@@ -3,9 +3,14 @@ package net.globulus.adam.frontend.parser
 import net.globulus.adam.api.*
 
 object TypeInfernal {
+    private val SYM_NUM = Sym("Num")
+    private val SYM_STR = Sym("Str")
+
     fun infer(scope: Scope, expr: Expr): Type {
         return expr.type?.let { it }
             ?: when (expr) {
+                is Num -> infer(scope, SYM_NUM)
+                is Str -> infer(scope, SYM_STR)
                 is Sym -> infer(scope, expr)
                 is RawList -> infer(scope, expr)
                 is Block -> infer(scope, expr)

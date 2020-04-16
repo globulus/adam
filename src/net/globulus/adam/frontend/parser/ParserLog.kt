@@ -20,6 +20,7 @@ object ParserLog {
 
     enum class Level {
         VERBOSE,
-        DESUGAR
+        DESUGAR,
+        NONE
     }
 }

@@ -48,7 +48,7 @@ class Sym(val value: String) : Value {
 }
 
 class Str(val value: String) : Value {
-    override var type: Type? = this
+    override var type: Type? = null
 
     override fun toString(): String {
         return "\"$value\""
@@ -64,7 +64,7 @@ class Str(val value: String) : Value {
 }
 
 class Num(val value: Double) : Value {
-    override var type: Type? = this
+    override var type: Type? = null
 
     override fun toString(): String {
         return value.toString()

@@ -51,7 +51,7 @@ class Lexer(private val source: String) {
                 }
             }
             '\n' -> {
-                line += 1
+                line++
                 addToken(TokenType.NEWLINE)
             }
             else -> {
@@ -76,7 +76,7 @@ class Lexer(private val source: String) {
         if (match('"')) { // Multi line
             while (!matchAll("\"\"\"\"")) {
                 if (peek() == '\n') {
-                    line += 1
+                    line++
                 }
                 advance()
             }
@@ -111,7 +111,7 @@ class Lexer(private val source: String) {
     private fun string(opener: Char) {
         while (peek() != opener && !isAtEnd) {
             if (peek() == '\n') {
-                line += 1
+                line++
             }
             advance()
         }
@@ -133,7 +133,7 @@ class Lexer(private val source: String) {
         if (peek() != expected) {
             return false
         }
-        current += 1
+        current++
         return true
     }
 
@@ -176,7 +176,7 @@ class Lexer(private val source: String) {
     private val isAtEnd get() = current >= sourceLen
 
     private fun advance(): Char {
-        current += 1
+        current++
         return source[current - 1]
     }
 
