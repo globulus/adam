@@ -5,9 +5,62 @@ import net.globulus.adam.api.*
 object DesugarDaddy {
     fun hustle(scope: Scope, exprs: List<Expr>): List<Expr> {
 //        val p1 = desugarLastBlockParamPass(scope, exprs)
-        val p2 = desugarUnaryPass(scope, exprs)// p1)
-        val p3 = desugarBinaryPass(scope, p2)
-        return p3
+        val p3 = desugarUnaryPass(scope, exprs)
+        val p4 = desugarBinaryPass(scope, p3)
+        // TODO check if the line consists of a single call with undefinedSym boobyTrap
+        return p4
+    }
+
+    private fun desugarLastBlockParamPass(scope: Scope, exprs: List<Expr>): List<Expr> {
+        val len = exprs.size
+        if (len == 1) {
+            return exprs
+        }
+        val desugared = mutableListOf<Expr>()
+        var i = 1
+        while (i < len) {
+            val e1 = exprs[i - 1]
+            val e2 = exprs[i]
+            val lastBlockAttempt = desugarLastBlockParam(scope, desugared.last(), e1, e2)
+            if (lastBlockAttempt != null) {
+                desugared += lastBlockAttempt
+                i++
+            } else {
+                desugared += e1
+            }
+            i++
+            if (i == len) {
+                desugared += e2
+            }
+        }
+        return desugared
+    }
+
+    private fun desugarLastBlockParam(scope: Scope, e0: Expr, e1: Expr, e2: Expr): Expr? {
+        ParserLog.ds("Attempting last block desugar $e1 $e2")
+        if (e2 is Block) {
+            try {
+                val e1Type = TypeInfernal.infer(scope, e2, true)
+                return desugarLastBlockParamWithKnownE1Type(scope, e1, e2, e1Type)
+            } catch (e: UndefinedSymException) {
+                ParserLog.ds("Found a combo binary candidate: ${e.message}")
+                // Combo candidate is a binary desugar on previously desugared member - if (a) { } else { }
+                val e0Type = TypeInfernal.infer(scope, e0, true)
+                if (e0Type !is AdamList<*>) {
+                    ParserLog.ds("E0 isn't a list but $e0Type")
+                    throw e
+                }
+//                val member = TypeInfernal.infer(scope, e0Type, )
+                return null
+            }
+        } else {
+            ParserLog.ds("E2 isn't a block but $e2, bailing")
+            return null
+        }
+    }
+
+    private fun desugarLastBlockParamWithKnownE1Type(scope: Scope, e1: Expr, e2: Expr, e1Type: Type): Expr? {
+        return null
     }
 
     private fun desugarUnaryPass(scope: Scope, exprs: List<Expr>): List<Expr> {
@@ -35,7 +88,7 @@ object DesugarDaddy {
         return desugared
     }
 
-    fun desugarUnary(scope: Scope, e1: Expr, e2: Expr): Expr? {
+    private fun desugarUnary(scope: Scope, e1: Expr, e2: Expr): Expr? {
         ParserLog.ds("Attempting unary desugar $e1 $e2")
         reduceToSym(e1)?.let { e1Sym ->
             val e2Type = TypeInfernal.infer(scope, e2, true)
@@ -105,36 +158,27 @@ object DesugarDaddy {
             (e1Type as? AdamList<*>)?.let { list ->
                 try {
                     val memberType = TypeInfernal.infer(scope, list, e2Sym)
-                    (memberType as? Blockdef)?.let {
-                        return if (it.args?.props?.size == 1) {
-                            val e3Type = TypeInfernal.infer(scope, e3, true)
-                            var firstArgType = it.args.props[0].type
-                            if (firstArgType is Sym) {
-                                // This handles the case when the return type of a block is still stored as Num
-                                // when it fact it should be identified as StructList
-                                firstArgType = TypeInfernal.infer(scope, firstArgType)
-                            }
-                            if (e3Type == firstArgType) {
-                                ParserLog.ds("Returning binary desugar")
-                                Call(scope,
-                                    Getter(e1, e2Sym).patchType(scope, true),
-                                    ArgList(scope, listOf(RawList.Prop(null, e3)))
-                                ).patchType(true)
+                    return desugarBinaryOnFoundMember(scope, e1, e2Sym, memberType, e3)
+                } catch (e: TypeInferno) {
+                    ParserLog.ds("Member not found for $e2Sym on $list, will attempt blockdef with rec")
+                    val e2Type = TypeInfernal.infer(scope, e2Sym, true)
+                    (e2Type as? Blockdef)?.let { e2Blockdef ->
+                        e2Blockdef.rec?.let { e2RecSym ->
+                            val recType = TypeInfernal.infer(scope, e2RecSym, true)
+                            return if (recType == list) {
+                                desugarBinaryOnFoundMember(scope, e1, e2Sym, e2Type, e3)
                             } else {
-                                ParserLog.ds("E3 type ${e3Type::class.simpleName} $e3Type doesn't match first arg type ${firstArgType::class.simpleName} $firstArgType")
+                                ParserLog.ds("E2 rectype $recType doesn't match $list, bailing")
                                 null
                             }
-                        } else {
-                            ParserLog.ds("Member is not a single-arg blockdef: $it, bailing")
-                            null
+                        } ?: run {
+                            ParserLog.ds("E2 blockdef doesn't have a rec, bailing")
+                            return null
                         }
                     } ?: run {
-                        ParserLog.ds("Member is not a Blockdef: $memberType, bailing")
+                        ParserLog.ds("E2 isn't a blockdef but ${e2Type::class.simpleName} $e2, bailing")
                         return null
                     }
-                } catch (e: TypeInferno) {
-                    ParserLog.ds("Member not found for $e2, bailing")
-                    return null
                 }
             } ?: run {
                 ParserLog.ds("E1 isn't a list but ${e1Type::class.simpleName} $e1Type, bailing")
@@ -142,6 +186,38 @@ object DesugarDaddy {
             }
         } ?: run {
             ParserLog.ds("E2 isn't a symbol but ${e2::class.simpleName} $e2")
+            return null
+        }
+    }
+
+    private fun desugarBinaryOnFoundMember(scope: Scope, e1: Expr, e2Sym: Sym, memberType: Type, e3: Expr): Expr? {
+        (memberType as? Blockdef)?.let {
+            return if (it.args?.props?.size == 1) {
+                val e3Type = TypeInfernal.infer(scope, e3, true)
+                var firstArgType = it.args.props[0].type
+                if (firstArgType is Sym) {
+                    // This handles the case when the return type of a block is still stored as Num
+                    // when it fact it should be identified as StructList
+                    firstArgType = TypeInfernal.infer(scope, firstArgType)
+                }
+                if (e3Type == firstArgType) {
+                    ParserLog.ds("Returning binary desugar")
+                    Call(scope,
+                        Getter(e1, e2Sym).apply { type = memberType },
+                        ArgList(scope, listOf(RawList.Prop(null, e3)))
+                    ).apply {
+                        type = TypeInfernal.bottomMostType(scope, memberType)
+                    }
+                } else {
+                    ParserLog.ds("E3 type ${e3Type::class.simpleName} $e3Type doesn't match first arg type ${firstArgType::class.simpleName} $firstArgType")
+                    null
+                }
+            } else {
+                ParserLog.ds("Member is not a single-arg blockdef: $it, bailing")
+                null
+            }
+        } ?: run {
+            ParserLog.ds("Member is not a Blockdef: $memberType, bailing")
             return null
         }
     }

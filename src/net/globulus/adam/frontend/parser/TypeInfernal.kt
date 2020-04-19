@@ -44,7 +44,7 @@ object TypeInfernal {
         if (allTheWay) {
             return sym
         } else {
-            throw TypeInferno("Undefined sym $sym")
+            throw UndefinedSymException(sym)
         }
     }
 
@@ -91,6 +91,16 @@ object TypeInfernal {
             } ?: throw TypeInferno("Both type and expr are null, this should never happen!")
         } ?: throw TypeInferno("Unable to find sym $sym in $list")
     }
+
+    fun bottomMostType(scope: Scope, type: Type): Type {
+        return when (type) {
+            is Sym -> infer(scope, type, true)
+            is Blockdef -> bottomMostType(scope, type.ret)
+            else -> type
+        }
+    }
 }
 
-class TypeInferno(message: String) : Exception("Unable to infer type: $message")
+open class TypeInferno(message: String) : Exception("Unable to infer type: $message")
+
+class UndefinedSymException(sym: Sym) : TypeInferno("Undefined sym $sym")

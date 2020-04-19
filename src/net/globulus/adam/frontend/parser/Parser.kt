@@ -172,14 +172,13 @@ class Parser(private val tokens: List<Token>) {
 
     private fun value(primaryGetter: Boolean): Expr {
         val getter = getter(primaryGetter)
-        return if (peek.type == TokenType.LEFT_PAREN) {
-            call(getter)
-        } else {
-            getter
+        return when (peek.type) {
+            TokenType.LEFT_PAREN -> callOrGetterPlusGrouping(getter)
+            else -> getter
         }
     }
 
-    private fun call(getter: Getter): Expr {
+    private fun callOrGetterPlusGrouping(getter: Getter): Expr {
         val storedCurrent = current
         val args = try {
             argList()
@@ -191,19 +190,28 @@ class Parser(private val tokens: List<Token>) {
             }
             ArgList(currentScope, listOf(RawList.Prop(null, exprs[0])))
         }
-        return simpleCall(getter, args)
-    }
-
-    private fun simpleCall(getter: Getter, args: ArgList): Expr {
-        val call = Call(currentScope, getter, args).patchType(false)
-        return if (match(TokenType.DOT)) {
-            when (val next = value(false)) {
-                is Getter -> call + next
-                is Call -> call + next
-                else -> throw ParseException(previous, "Next chain element must be a Getter or a Call, instead it's $next")
+        try {
+            val call = Call(currentScope, getter, args).validate()
+            return if (match(TokenType.DOT)) {
+                when (val next = value(false)) {
+                    is Getter -> call + next
+                    is Call -> call + next
+                    else -> throw ParseException(
+                        previous,
+                        "Next chain element must be a Getter or a Call, instead it's $next"
+                    )
+                }
+            } else {
+                call
             }
-        } else {
-            call
+        } catch (e: ValidationException) {
+            // TODO optimize, return both getter and grouping at the same time since both are known at this point
+            if (args.props.size == 1) { // This might be a getter + grouping, return getter and reset current
+                current = storedCurrent
+                return getter
+            } else {
+                throw e
+            }
         }
     }
 
@@ -316,7 +324,7 @@ class Parser(private val tokens: List<Token>) {
         }
         scopeStack.push(bodyScope)
         while (!match(TokenType.RIGHT_BRACE)) {
-            body += stmtLine()!!
+            body += stmtLine()
         }
         if (ret == null) {
             ret = TypeInfernal.infer(bodyScope, body)

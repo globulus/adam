@@ -1,13 +1,16 @@
 package net.globulus.adam.api
 
-import net.globulus.adam.frontend.parser.Scope
 import net.globulus.adam.frontend.parser.TypeInfernal
 
-sealed class AdamList<E>(val props: List<E>) : Value {
+sealed class AdamList<E>(val props: List<E>) : Expr(), Value {
     abstract fun get(sym: Sym): Pair<Type?, Expr?>?
 
     override fun toString(): String {
         return props.joinToString(", ", "[", "]")
+    }
+
+    override fun toValue(args: ArgList?): Value {
+        return this
     }
 }
 

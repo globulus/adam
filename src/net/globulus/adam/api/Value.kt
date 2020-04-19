@@ -1,17 +1,16 @@
 package net.globulus.adam.api
 
-import net.globulus.adam.frontend.parser.Scope
 import net.globulus.adam.frontend.parser.TypeInfernal
 import net.globulus.adam.frontend.parser.TypeInferno
 
-interface Value : Expr, Type {
-    override fun eval(args: ArgList?): Value {
+interface Value : Type
+
+class Sym(val value: String) : Expr(), Value {
+    override var type: Type? = null
+
+    override fun toValue(args: ArgList?): Value {
         return this
     }
-}
-
-class Sym(val value: String) : Value {
-    override var type: Type? = null
 
     override fun toString(): String {
         return value
@@ -47,8 +46,12 @@ class Sym(val value: String) : Value {
     }
 }
 
-class Str(val value: String) : Value {
+class Str(val value: String) : Expr(), Value {
     override var type: Type? = null
+
+    override fun toValue(args: ArgList?): Value {
+        return this
+    }
 
     override fun toString(): String {
         return "\"$value\""
@@ -63,8 +66,12 @@ class Str(val value: String) : Value {
     }
 }
 
-class Num(val value: Double) : Value {
+class Num(val value: Double) : Expr(), Value {
     override var type: Type? = null
+
+    override fun toValue(args: ArgList?): Value {
+        return this
+    }
 
     override fun toString(): String {
         return value.toString()

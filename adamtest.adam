@@ -15,12 +15,17 @@ adam ifBranching [T]..[
     {[Num condition, T block] ifBranching} elsif,
     {[T block] T} else
 ]
-adam if [T]..{[Num condition, T block] ifBranching}
+adam if [T]..{[T block] ifBranching}
 adam foreach [T]..{[[T... vals] array, {[T it] [T... vals]} block] [T... vals]}
+adam do {[Num a, Num b]Num}
+adam return {[Num arg]Num}
 
 {[Num a, Num b, Num c, Num d, {[Num a, {[Str arg] Num} block] Num} go]
+    do(5, 6)
+    return 10
     - a
     a = 5
-    c.= (a + b)
-    d.= (a + - d)
+    c = (a + b)
+    d = (a + - d)
+    c = do(6, 7)
 }

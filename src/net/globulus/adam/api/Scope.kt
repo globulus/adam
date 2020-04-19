@@ -1,7 +1,5 @@
-package net.globulus.adam.frontend.parser
+package net.globulus.adam.api
 
-import net.globulus.adam.api.Sym
-import net.globulus.adam.api.Type
 import java.util.*
 
 class Scope(val parent: Scope?) {
