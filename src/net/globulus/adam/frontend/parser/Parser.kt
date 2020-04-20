@@ -176,10 +176,9 @@ class Parser(private val tokens: List<Token>) {
 
     private fun value(primaryGetter: Boolean): Expr {
         val getter = getter(primaryGetter)
-        return when {
-            peek.type == TokenType.LEFT_PAREN -> callOrGetterPlusGrouping(getter)
-            getter.isPrimitive -> getter.origin
-            else -> getter
+        return when (peek.type) {
+            TokenType.LEFT_PAREN -> callOrGetterPlusGrouping(getter)
+            else -> getter.unpacked
         }
     }
 
@@ -209,7 +208,7 @@ class Parser(private val tokens: List<Token>) {
             // TODO optimize, return both getter and grouping at the same time since both are known at this point
             if (args.props.size == 1) { // This might be a getter + grouping, return getter and reset current
                 current = storedCurrent
-                return getter
+                return getter.unpacked
             } else {
                 throw e
             }

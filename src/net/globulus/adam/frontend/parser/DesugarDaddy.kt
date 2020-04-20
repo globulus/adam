@@ -21,9 +21,11 @@ object DesugarDaddy {
      *      2.2 If it's an ArgList:
      *          2.2.1 Add it to it as the last element.
      *          2.2.2 Check the element before the ArgList to be proper prior. If it is, desugar.
-     *          2.2.3 Otherwise, throw error.
+     *          2.2.3 Otherwise, check if e0 is Sym. If it is, try combo desugar with e0.e1(e2). If it succeeds, desugar.
+     *          2.2.4 Otherwise, raise error.
      *      2.3. If it's any other Expr, construct an artificial ArgList of that element and the block. Proceed from step 2.2.2.
-     *      2.4 Otherwise, raise an error.
+     *      2.4 If everything else fails, try the 4 piece combo - e(-1).e(0)(combinedArgList).
+     *      2.5 Otherwise, raise an error.
      */
     private fun desugarLastBlockParamPass(scope: Scope, exprs: List<Expr>): List<Expr> {
         val len = exprs.size
@@ -35,26 +37,63 @@ object DesugarDaddy {
         while (i < len) {
             val e1 = exprs[i - 1]
             val e2 = exprs[i]
-            var lastBlockAttempt: Expr? = null
             if (e2 is Block) {
                 val attemptWithE1 = checkForProperPrior(scope, e1, e2)
                 if (attemptWithE1 != null) {
-                    lastBlockAttempt = attemptWithE1
+                    ParserLog.ds("Found last block desugar with E1 and E2")
+                    desugared += attemptWithE1
+                    i++
                 } else if (i > 1) {
-                    val e0 = exprs[i - 2]
+                    val e0 = desugared.last()
                     val argList = if (e1 is ArgList) {
                         e1 + e2
                     } else {
                         ArgList(scope, e1, e2)
                     }
-                    lastBlockAttempt = checkForProperPrior(scope, e0, argList)
-                }
-                if (lastBlockAttempt != null) {
-                    desugared.removeLast()
-                    desugared += lastBlockAttempt
-                    i++
-                } else {
-                    throw ValidationException("Standalone block detected, unable to tie it to any calls!")
+                    var attemptWithE0 = checkForProperPrior(scope, e0, argList)
+                    // Try combo with previous
+                    if (attemptWithE0 == null && e1 is Sym) {
+                        ParserLog.ds("Checking combo")
+                        attemptWithE0 = try {
+                            checkForProperPrior(
+                                scope,
+                                Getter(e0, e1).patchType(scope, true),
+                                e2
+                            )
+                        } catch (e: TypeInferno) {
+                            null
+                        }
+                    }
+                    if (attemptWithE0 != null) {
+                        ParserLog.ds("Found last block desugar with E0, E1 and E2")
+                        desugared.removeLast()
+                        desugared += attemptWithE0
+                        i++
+                    } else if (i > 2 && e0 is Sym) {
+                        ParserLog.ds("Checking 4 piece combo")
+                        // One last thing to try - the 4 piece combo
+                        val eMinus1 = desugared[desugared.size - 2]
+                        val attemptWithEMinus1 = try {
+                            checkForProperPrior(
+                                scope,
+                                Getter(eMinus1, e0).patchType(scope, true),
+                                argList
+                            )
+                        } catch (e: TypeInferno) {
+                            null
+                        }
+                        if (attemptWithEMinus1 != null) {
+                            ParserLog.ds("Found last block desugar with E-1, E0, E1 and E2")
+                            desugared.removeLast()
+                            desugared.removeLast()
+                            desugared += attemptWithEMinus1
+                            i++
+                        } else {
+                            throw ValidationException("Standalone block detected, unable to tie it to any calls!")
+                        }
+                    } else {
+                        throw ValidationException("Standalone block detected, unable to tie it to any calls!")
+                    }
                 }
             } else {
                 ParserLog.ds("E2 isn't a block but ${e2::class.simpleName}, bailing")

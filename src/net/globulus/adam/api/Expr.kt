@@ -111,6 +111,7 @@ class Getter(val origin: Expr, val syms: List<Sym>) : Expr() {
     }
 
     val isPrimitive = syms.isEmpty()
+    val unpacked: Expr get() = if (isPrimitive) origin else this
 
     fun patchType(scope: Scope, allTheWay: Boolean) = apply {
         type = TypeInfernal.infer(scope, this, allTheWay)
