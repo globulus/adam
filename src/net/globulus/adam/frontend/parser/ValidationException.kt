@@ -1,3 +1,3 @@
 package net.globulus.adam.frontend.parser
 
-class ValidationException(message: String?) : Exception(message)
+internal class ValidationException(message: String) : Exception(message)

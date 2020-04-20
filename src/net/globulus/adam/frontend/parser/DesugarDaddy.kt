@@ -104,7 +104,7 @@ object DesugarDaddy {
                             Call(scope,
                                 Getter(e2, e1Sym).patchType(scope, true),
                                 ArgList(scope, emptyList())
-                            ).patchType(true)
+                            ).validate()
                         }
                     } ?: run {
                         ParserLog.ds("Member is not a Blockdef: $memberType, bailing")
@@ -207,7 +207,7 @@ object DesugarDaddy {
                         ArgList(scope, listOf(RawList.Prop(null, e3)))
                     ).apply {
                         type = TypeInfernal.bottomMostType(scope, memberType)
-                    }
+                    }.validate()
                 } else {
                     ParserLog.ds("E3 type ${e3Type::class.simpleName} $e3Type doesn't match first arg type ${firstArgType::class.simpleName} $firstArgType")
                     null

@@ -21,19 +21,23 @@ class Parser(private val tokens: List<Token>) {
         val exprs = mutableListOf<Expr>()
         matchAllNewlines()
         while (!isAtEnd) {
-            val stmtsExprs = stmtLine()
-            if (stmtsExprs.isNotEmpty()) {
-                if (stmtsExprs.size != 1) {
-                    throw ParseException(previous, "More than one expression on a line, desugaring failed")
-                }
-                exprs += stmtsExprs[0]
-            }
+            stmtLine()?.let { exprs += it }
             matchAllNewlines()
         }
         return exprs
     }
 
-    private fun stmtLine() = stmt(false, TokenType.NEWLINE)
+    private fun stmtLine(): Expr? {
+        val stmtsExprs =  stmt(false, TokenType.NEWLINE)
+        return if (stmtsExprs.isNotEmpty()) {
+            if (stmtsExprs.size != 1) {
+                throw ParseException(previous, "More than one expression on a line, desugaring failed")
+            }
+            stmtsExprs[0]
+        } else {
+            null
+        }
+    }
 
     private fun valueLine(delimiter: TokenType) = stmt(true, TokenType.COMMA, TokenType.NEWLINE, delimiter)
 
@@ -193,18 +197,14 @@ class Parser(private val tokens: List<Token>) {
         try {
             val call = Call(currentScope, getter, args).validate()
             return if (match(TokenType.DOT)) {
-                when (val next = value(false)) {
-                    is Getter -> call + next
-                    is Call -> call + next
-                    else -> throw ParseException(
-                        previous,
-                        "Next chain element must be a Getter or a Call, instead it's $next"
-                    )
-                }
+                val next = getter(false)
+                val comboOp = call + next
+                callOrGetterPlusGrouping(comboOp)
             } else {
                 call
             }
         } catch (e: ValidationException) {
+            ParserLog.v("Validation exception thrown while validation a call: ${e.message}")
             // TODO optimize, return both getter and grouping at the same time since both are known at this point
             if (args.props.size == 1) { // This might be a getter + grouping, return getter and reset current
                 current = storedCurrent
@@ -324,7 +324,7 @@ class Parser(private val tokens: List<Token>) {
         }
         scopeStack.push(bodyScope)
         while (!match(TokenType.RIGHT_BRACE)) {
-            body += stmtLine()
+            stmtLine()?.let { body += it }
         }
         if (ret == null) {
             ret = TypeInfernal.infer(bodyScope, body)

@@ -65,6 +65,13 @@ object TypeInfernal {
     }
 
     fun infer(scope: Scope, call: Call, allTheWay: Boolean = false): Type {
+        // For chained calls like a.=(3).+(4), the getter op's type has already been
+        // inferred via allTheWay = true (because otherwise it'd be a Blockdef). Invoking
+        // infer(scope, call.op, allTheWay = false) would take it back to being a Blockdef,
+        // which is wrong.
+        if (call.op.type != null && !allTheWay) {
+            return call.op.type!!
+        }
         return infer(scope, call.op, allTheWay)
     }
 

@@ -77,7 +77,7 @@ class Call(val scope: Scope,
                     throw ValidationException("Arg types don't match at index $i!")
                 }
             }
-        } ?: throw ValidationException("Call type isn't a Blockdef!")
+        } ?: throw ValidationException("Call type isn't a Blockdef but ${type!!::class.simpleName}!")
     }
 
     fun patchType(allTheWay: Boolean) = apply {
@@ -85,7 +85,7 @@ class Call(val scope: Scope,
     }
 
     operator fun plus(getter: Getter): Getter {
-        return Getter(this, getter.combineOriginSymWithSyms())
+        return Getter(this, getter.combineOriginSymWithSyms()).patchType(scope, true)
     }
 
     operator fun plus(other: Call): Call {
