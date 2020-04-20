@@ -40,6 +40,7 @@ open class RawList(scope: Scope,
     }
 
     class Prop(val sym: Sym?, val expr: Expr) {
+        constructor(expr: Expr) : this(null, expr)
         override fun toString(): String {
             return sym?.let {
                 "$it $expr"
@@ -48,9 +49,16 @@ open class RawList(scope: Scope,
     }
 }
 
-class ArgList(scope: Scope, props: List<Prop>) : RawList(scope, props) {
+class ArgList(private val scope: Scope, props: List<Prop>) : RawList(scope, props) {
+
+    constructor(scope: Scope, vararg exprs: Expr) : this(scope, exprs.map { Prop(it) })
+
     override fun toString(): String {
         return props.joinToString(", ", "(", ")")
+    }
+
+    operator fun plus(expr: Expr): ArgList {
+        return ArgList(scope, props + Prop(expr))
     }
 }
 

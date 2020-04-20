@@ -4,13 +4,27 @@ import net.globulus.adam.api.*
 
 object DesugarDaddy {
     fun hustle(scope: Scope, exprs: List<Expr>): List<Expr> {
-//        val p1 = desugarLastBlockParamPass(scope, exprs)
-        val p3 = desugarUnaryPass(scope, exprs)
-        val p4 = desugarBinaryPass(scope, p3)
+        val p1 = desugarLastBlockParamPass(scope, exprs)
+        val p2 = desugarUnaryPass(scope, p1)
+        val p3 = desugarBinaryPass(scope, p2)
         // TODO check if the line consists of a single call with undefinedSym boobyTrap
-        return p4
+        return p3
     }
 
+    /**
+     * Definitions:
+     *  a) Proper prior element is a a Sym that evaluates to a Blockdef with adequate arity and types match.
+     * The algorithm is as follows:
+     *  1. Any free-standing [Block] is an anomaly unless it's the only thing on the line.
+     *  2. Check the Expr before:
+     *      2.1 If it's single-arg proper prior, desugar.
+     *      2.2 If it's an ArgList:
+     *          2.2.1 Add it to it as the last element.
+     *          2.2.2 Check the element before the ArgList to be proper prior. If it is, desugar.
+     *          2.2.3 Otherwise, throw error.
+     *      2.3. If it's any other Expr, construct an artificial ArgList of that element and the block. Proceed from step 2.2.2.
+     *      2.4 Otherwise, raise an error.
+     */
     private fun desugarLastBlockParamPass(scope: Scope, exprs: List<Expr>): List<Expr> {
         val len = exprs.size
         if (len == 1) {
@@ -21,11 +35,29 @@ object DesugarDaddy {
         while (i < len) {
             val e1 = exprs[i - 1]
             val e2 = exprs[i]
-            val lastBlockAttempt = desugarLastBlockParam(scope, desugared.last(), e1, e2)
-            if (lastBlockAttempt != null) {
-                desugared += lastBlockAttempt
-                i++
+            var lastBlockAttempt: Expr? = null
+            if (e2 is Block) {
+                val attemptWithE1 = checkForProperPrior(scope, e1, e2)
+                if (attemptWithE1 != null) {
+                    lastBlockAttempt = attemptWithE1
+                } else if (i > 1) {
+                    val e0 = exprs[i - 2]
+                    val argList = if (e1 is ArgList) {
+                        e1 + e2
+                    } else {
+                        ArgList(scope, e1, e2)
+                    }
+                    lastBlockAttempt = checkForProperPrior(scope, e0, argList)
+                }
+                if (lastBlockAttempt != null) {
+                    desugared.removeLast()
+                    desugared += lastBlockAttempt
+                    i++
+                } else {
+                    throw ValidationException("Standalone block detected, unable to tie it to any calls!")
+                }
             } else {
+                ParserLog.ds("E2 isn't a block but ${e2::class.simpleName}, bailing")
                 desugared += e1
             }
             i++
@@ -36,14 +68,30 @@ object DesugarDaddy {
         return desugared
     }
 
-    private fun desugarLastBlockParam(scope: Scope, e0: Expr, e1: Expr, e2: Expr): Expr? {
+    private fun checkForProperPrior(scope: Scope, e1: Expr, vararg args: Expr) = checkForProperPrior(scope, e1, ArgList(scope, *args))
+
+    private fun checkForProperPrior(scope: Scope, e1: Expr, argList: ArgList): Expr? {
+        ParserLog.ds("Attempting proper prior check for $e1 with $argList")
+        return try {
+            Call(scope, Getter(e1), argList).validate()
+        } catch (e: ValidationException) {
+            ParserLog.ds("Proper prior failed due to ${e.message}")
+            null
+        }
+    }
+
+    private fun desugarLastBlockParam(scope: Scope, e0: Expr?, e1: Expr, e2: Expr): Expr? {
         ParserLog.ds("Attempting last block desugar $e1 $e2")
         if (e2 is Block) {
             try {
-                val e1Type = TypeInfernal.infer(scope, e2, true)
+                val e1Type = TypeInfernal.infer(scope, e1, true)
                 return desugarLastBlockParamWithKnownE1Type(scope, e1, e2, e1Type)
             } catch (e: UndefinedSymException) {
                 ParserLog.ds("Found a combo binary candidate: ${e.message}")
+                if (e0 == null) {
+                    ParserLog.ds("E0 is null, we're too early in, bailing")
+                    return null
+                }
                 // Combo candidate is a binary desugar on previously desugared member - if (a) { } else { }
                 val e0Type = TypeInfernal.infer(scope, e0, true)
                 if (e0Type !is AdamList<*>) {
@@ -204,7 +252,7 @@ object DesugarDaddy {
                     ParserLog.ds("Returning binary desugar")
                     Call(scope,
                         Getter(e1, e2Sym).apply { type = memberType },
-                        ArgList(scope, listOf(RawList.Prop(null, e3)))
+                        ArgList(scope, listOf(RawList.Prop(e3)))
                     ).apply {
                         type = TypeInfernal.bottomMostType(scope, memberType)
                     }.validate()

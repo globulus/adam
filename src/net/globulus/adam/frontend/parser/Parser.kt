@@ -176,8 +176,9 @@ class Parser(private val tokens: List<Token>) {
 
     private fun value(primaryGetter: Boolean): Expr {
         val getter = getter(primaryGetter)
-        return when (peek.type) {
-            TokenType.LEFT_PAREN -> callOrGetterPlusGrouping(getter)
+        return when {
+            peek.type == TokenType.LEFT_PAREN -> callOrGetterPlusGrouping(getter)
+            getter.isPrimitive -> getter.origin
             else -> getter
         }
     }
@@ -192,7 +193,7 @@ class Parser(private val tokens: List<Token>) {
             if (exprs.size != 1) {
                 throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
             }
-            ArgList(currentScope, listOf(RawList.Prop(null, exprs[0])))
+            ArgList(currentScope, listOf(RawList.Prop(exprs[0])))
         }
         try {
             val call = Call(currentScope, getter, args).validate()
