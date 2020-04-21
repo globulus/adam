@@ -49,8 +49,12 @@ object TypeInfernal {
     }
 
     fun infer(scope: Scope, list: RawList, allTheWay: Boolean = false): StructList {
-        return StructList(list.props.map {
-            StructList.Prop(infer(scope, it.expr, allTheWay), it.sym ?: Sym.EMPTY, it.expr)
+        return StructList(null, list.props.map {
+            StructList.Prop(try {
+                infer(scope, it.expr, allTheWay)
+            } catch (e: UndefinedSymException) {
+                e.sym
+            },it.sym ?: Sym.EMPTY, it.expr)
         })
     }
 
@@ -110,4 +114,4 @@ object TypeInfernal {
 
 open class TypeInferno(message: String) : Exception("Unable to infer type: $message")
 
-class UndefinedSymException(sym: Sym) : TypeInferno("Undefined sym $sym")
+class UndefinedSymException(val sym: Sym) : TypeInferno("Undefined sym $sym")

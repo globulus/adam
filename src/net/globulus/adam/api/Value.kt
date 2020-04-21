@@ -7,6 +7,7 @@ interface Value : Type
 
 class Sym(val value: String) : Expr(), Value {
     override var type: Type? = null
+    var gens: GensTable? = null // ifBranching..[T]
 
     override fun toValue(args: ArgList?): Value {
         return this

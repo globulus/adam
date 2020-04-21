@@ -14,7 +14,7 @@ sealed class AdamList<E>(val props: List<E>) : Expr(), Value {
     }
 }
 
-class StructList(props: List<Prop>) : AdamList<StructList.Prop>(props), Type {
+class StructList(val gens: GenList?, props: List<Prop>) : AdamList<StructList.Prop>(props), Type {
     override var type: Type? = this
 
     override fun get(sym: Sym): Pair<Type?, Expr?>? {
@@ -69,7 +69,7 @@ class GenList(props: List<Prop>) : AdamList<GenList.Prop>(props) {
         return props.find { it.sym == sym }?.let { it.type to null }
     }
 
-    fun asStructList() = StructList(props.map { prop ->
+    fun asStructList() = StructList(null, props.map { prop ->
         prop.type?.let { type ->
             StructList.Prop(type, prop.sym, null)
         } ?: throw UnsupportedOperationException("Unable to convert this gens list to struct list!")

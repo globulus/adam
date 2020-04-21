@@ -12,10 +12,10 @@ adam Num [
 adam ifBranching [T]..[
     Num wasTrue,
     T result,
-    {[Num condition, Num block] ifBranching} elsif,
-    {[Num block] Num} else
+    {[Num condition, T block] ifBranching..[T]} elsif,
+    {[Num block] T} else
 ]
-adam if [T]..{[Num condition, {Num} block] ifBranching}
+adam if [T]..{[Num condition, {T} block] ifBranching..[T]}
 adam foreach [T]..{[[T... vals] array, {[T it] [T... vals]} block] [T... vals]}
 adam do {[Num a, Num b]Num}
 adam return {[Num arg]Num}

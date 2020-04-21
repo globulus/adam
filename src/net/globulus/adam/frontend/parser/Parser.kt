@@ -12,6 +12,8 @@ class Parser(private val tokens: List<Token>) {
     private val scopeStack = Stack<Scope>()
     private val currentScope get() = scopeStack.peek()
 
+    private var currentlyDefinedType: CurrentlyDefinedType? = null
+
     init {
         // Init root scope and add primitive types to it
         scopeStack += Scope(null)
@@ -69,7 +71,9 @@ class Parser(private val tokens: List<Token>) {
         if (peek.literal == TYPEDEF_START) {
             advance()
             val sym = consumeSym("Need Sym for typedef")
+            currentlyDefinedType = CurrentlyDefinedType(sym)
             val type = type()
+            currentlyDefinedType = null
             consume(TokenType.NEWLINE, "Need newline after typedef")
             ParserLog.v("Set type alias for $sym as $type")
             currentScope.typeAliases.putIfAbsent(sym, type)
@@ -80,7 +84,7 @@ class Parser(private val tokens: List<Token>) {
 
     private fun type(): Type {
         val type: Type = if (match(TokenType.SYM)) {
-            previousSym
+            symTypeWithPatchedGens(previousSym)
         } else {
             structListOrBlockdef()
         }
@@ -91,11 +95,40 @@ class Parser(private val tokens: List<Token>) {
         }
     }
 
+    private fun symTypeWithPatchedGens(sym: Sym): Type {
+        val typeGens = if (sym == currentlyDefinedType?.sym) {
+            currentlyDefinedType!!.gens
+        } else {
+            TypeInfernal.infer(currentScope, sym, true).let {
+                when (it) {
+                    is Blockdef -> it.gens
+                    is StructList -> it.gens
+                    else -> null
+                }
+            }
+        }
+        if (match(TokenType.TWO_DOTS)) {
+            val gensList = rawList()
+            sym.gens = GensTable().apply {
+                for (prop in gensList.props) {
+                    set(prop.sym ?: prop.expr as Sym)
+                }
+            }
+            if (typeGens?.props?.size ?: 0 != sym.gens!!.size) {
+                throw ParseException(previous, "Supplied gens table doesn't match in arity with Blockdef gens table!")
+            }
+        } else if (typeGens != null) {
+            throw ParseException(previous, "This sym evaluates to a type that has gens, yet none were specified!")
+        }
+        return sym
+    }
+
     private fun structListOrBlockdef(): Type {
         val gens = genList()
         if (gens != null && !match(TokenType.TWO_DOTS)) {
             return gens.asStructList()
         }
+        currentlyDefinedType?.setGensIfNull(gens)
         var rec: Sym? = null
         if (match(TokenType.SYM)) {
             rec = previousSym
@@ -110,11 +143,11 @@ class Parser(private val tokens: List<Token>) {
             consume(TokenType.RIGHT_BRACE, "Expected } at the end of blockdef")
             return Blockdef(gens, rec, args, ret)
         }
-        return structList()
+        return structList(gens)
     }
 
-    private fun structList(): StructList {
-        return StructList(parseListWithAtLeastOneElement("struct") {
+    private fun structList(gens: GenList? = null): StructList {
+        return StructList(gens, parseListWithAtLeastOneElement("struct") {
             val type = type()
             val sym = consumeSym("Expected Sym after type in struct list prop")
             var expr: Expr? = null
@@ -260,7 +293,7 @@ class Parser(private val tokens: List<Token>) {
             tokenCount++
         }
         return if (tokenCount > 1) {
-            structList()
+            structList(null)
         } else {
             rawList()
         }
@@ -309,7 +342,7 @@ class Parser(private val tokens: List<Token>) {
         var args: StructList? = null
         var ret: Type? = null
         if (peek.type == TokenType.LEFT_BRACKET) { // Has def in first line
-            args = structList()
+            args = structList(null)
             if (!match(TokenType.NEWLINE)) {
                 ret = type()
                 consume(TokenType.NEWLINE, "Expected newline after block def inside block")
@@ -405,6 +438,20 @@ class Parser(private val tokens: List<Token>) {
             }
         }
         return true
+    }
+
+    /**
+     * If a type is using itself recursively, such as ifBranching
+     */
+    private class CurrentlyDefinedType(val sym: Sym) {
+        var gens: GenList? = null
+            private set
+
+        fun setGensIfNull(gens: GenList?) {
+            if (this.gens == null) {
+                this.gens = gens
+            }
+        }
     }
 
     companion object {
