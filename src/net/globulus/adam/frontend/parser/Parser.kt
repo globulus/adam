@@ -39,7 +39,13 @@ class Parser(private val tokens: List<Token>) {
         }
     }
 
-    private fun valueLine(delimiter: TokenType) = stmt(true, TokenType.COMMA, TokenType.NEWLINE, delimiter)
+    private fun valueLine(delimiter: TokenType): Expr {
+        val exprs = stmt(true, TokenType.COMMA, TokenType.NEWLINE, delimiter)
+        if (exprs.size != 1) {
+            throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
+        }
+        return exprs[0]
+    }
 
     private fun stmt(rollBack: Boolean, vararg delimiters: TokenType): List<Expr> {
         val exprs = mutableListOf<Expr>()
@@ -160,11 +166,7 @@ class Parser(private val tokens: List<Token>) {
     private fun grouping(): Expr {
         val hasOpeningParen = match(TokenType.LEFT_PAREN)
         val expr = if (hasOpeningParen) {
-            val exprs = valueLine(TokenType.RIGHT_PAREN)
-            if (exprs.size != 1) {
-                throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
-            }
-            exprs[0]
+            valueLine(TokenType.RIGHT_PAREN)
         } else {
             value(true)
         }
@@ -188,11 +190,8 @@ class Parser(private val tokens: List<Token>) {
             argList()
         } catch (e: ParseException) { // Let's try it as a value line
             current = storedCurrent
-            val exprs = valueLine(TokenType.RIGHT_PAREN)
-            if (exprs.size != 1) {
-                throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
-            }
-            ArgList(currentScope, listOf(RawList.Prop(exprs[0])))
+            val expr = valueLine(TokenType.RIGHT_PAREN)
+            ArgList(currentScope, listOf(RawList.Prop(expr)))
         }
         try {
             val call = Call(currentScope, getter, args).validate()
@@ -323,12 +322,18 @@ class Parser(private val tokens: List<Token>) {
             }
         }
         scopeStack.push(bodyScope)
-        while (!match(TokenType.RIGHT_BRACE)) {
-            stmtLine()?.let { body += it }
+        if (args == null && !match(TokenType.NEWLINE)) {
+            body += valueLine(TokenType.RIGHT_BRACE)
+            consume(TokenType.RIGHT_BRACE, "Expected } after value in a lambda block!")
+        } else {
+            while (!match(TokenType.RIGHT_BRACE)) {
+                stmtLine()?.let { body += it }
+            }
         }
         if (ret == null) {
             ret = TypeInfernal.infer(bodyScope, body)
         }
+        scopeStack.pop()
         return Block(args, ret, body)
     }
 

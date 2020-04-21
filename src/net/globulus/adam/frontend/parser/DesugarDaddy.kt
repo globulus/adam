@@ -4,11 +4,30 @@ import net.globulus.adam.api.*
 
 object DesugarDaddy {
     fun hustle(scope: Scope, exprs: List<Expr>): List<Expr> {
-        val p1 = desugarLastBlockParamPass(scope, exprs)
-        val p2 = desugarUnaryPass(scope, p1)
-        val p3 = desugarBinaryPass(scope, p2)
+        val p1 = exhaust(exprs) { desugarLastBlockParamPass(scope, it) }
+        val p2 = exhaust(p1) { desugarUnaryPass(scope, it) }
+        val p3 = exhaust(p2) { desugarBinaryPass(scope, it) }
         // TODO check if the line consists of a single call with undefinedSym boobyTrap
         return p3
+    }
+
+    /**
+     * Reruns the desugaring block until it's exhausted, i.e until it didn't produce
+     * any new desugars. This is imperative for situations such as:
+     * if (a) { 1 } else if (b) { 2 } else if (c) { 3 } else { 4 }
+     */
+    fun exhaust(exprs: List<Expr>, block: (List<Expr>) -> List<Expr>): List<Expr> {
+        var desugared = exprs
+        var oldSize = desugared.size
+        while (true) {
+            desugared = block(desugared)
+            if (desugared.size == oldSize) {
+                break
+            } else {
+                oldSize = desugared.size
+            }
+        }
+        return desugared
     }
 
     /**
