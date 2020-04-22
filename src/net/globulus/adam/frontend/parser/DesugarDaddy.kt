@@ -59,32 +59,34 @@ object DesugarDaddy {
             if (e2 is Block) {
                 val attemptWithE1 = checkForProperPrior(scope, e1, e2)
                 if (attemptWithE1 != null) {
-                    ParserLog.ds("Found last block desugar with E1 and E2")
+                    ParserLog.ds("Found last block desugar with E1 and E2: $attemptWithE1")
                     desugared += attemptWithE1
                     i++
                 } else if (i > 1) {
                     val e0 = desugared.last()
+                    var attemptWithE0: Expr? = null
+                    if (e1 is Sym) {
+                        attemptWithE0 = try {
+                            val e1Type = TypeInfernal.infer(scope, e1, true)
+                            if (e1Type is Sym) {
+                                attemptThreePieceCombo(scope, e0, e1, e2)
+                            } else {
+                                null
+                            }
+                        } catch (e: UndefinedSymException) {
+                            attemptThreePieceCombo(scope, e0, e1, e2)
+                        }
+                    }
                     val argList = if (e1 is ArgList) {
                         e1 + e2
                     } else {
                         ArgList(scope, e1, e2)
                     }
-                    var attemptWithE0 = checkForProperPrior(scope, e0, argList)
-                    // Try combo with previous
-                    if (attemptWithE0 == null && e1 is Sym) {
-                        ParserLog.ds("Checking combo")
-                        attemptWithE0 = try {
-                            checkForProperPrior(
-                                scope,
-                                Getter(e0, e1).patchType(scope, true),
-                                e2
-                            )
-                        } catch (e: TypeInferno) {
-                            null
-                        }
+                    if (attemptWithE0 == null) {
+                        attemptWithE0 = checkForProperPrior(scope, e0, argList)
                     }
                     if (attemptWithE0 != null) {
-                        ParserLog.ds("Found last block desugar with E0, E1 and E2")
+                        ParserLog.ds("Found last block desugar with E0, E1 and E2: $attemptWithE0")
                         desugared.removeLast()
                         desugared += attemptWithE0
                         i++
@@ -102,7 +104,7 @@ object DesugarDaddy {
                             null
                         }
                         if (attemptWithEMinus1 != null) {
-                            ParserLog.ds("Found last block desugar with E-1, E0, E1 and E2")
+                            ParserLog.ds("Found last block desugar with E-1, E0, E1 and E2: $attemptWithEMinus1")
                             desugared.removeLast()
                             desugared.removeLast()
                             desugared += attemptWithEMinus1
@@ -138,35 +140,18 @@ object DesugarDaddy {
         }
     }
 
-    private fun desugarLastBlockParam(scope: Scope, e0: Expr?, e1: Expr, e2: Expr): Expr? {
-        ParserLog.ds("Attempting last block desugar $e1 $e2")
-        if (e2 is Block) {
-            try {
-                val e1Type = TypeInfernal.infer(scope, e1, true)
-                return desugarLastBlockParamWithKnownE1Type(scope, e1, e2, e1Type)
-            } catch (e: UndefinedSymException) {
-                ParserLog.ds("Found a combo binary candidate: ${e.message}")
-                if (e0 == null) {
-                    ParserLog.ds("E0 is null, we're too early in, bailing")
-                    return null
-                }
-                // Combo candidate is a binary desugar on previously desugared member - if (a) { } else { }
-                val e0Type = TypeInfernal.infer(scope, e0, true)
-                if (e0Type !is AdamList<*>) {
-                    ParserLog.ds("E0 isn't a list but $e0Type")
-                    throw e
-                }
-//                val member = TypeInfernal.infer(scope, e0Type, )
-                return null
-            }
-        } else {
-            ParserLog.ds("E2 isn't a block but $e2, bailing")
-            return null
+    private fun attemptThreePieceCombo(scope: Scope, e0: Expr, e1: Sym, e2: Expr): Expr? {
+        // Try combo with previous
+        ParserLog.ds("Checking combo")
+        return try {
+            checkForProperPrior(
+                scope,
+                Getter(e0, e1).patchType(scope, true),
+                e2
+            )
+        } catch (e: TypeInferno) {
+            null
         }
-    }
-
-    private fun desugarLastBlockParamWithKnownE1Type(scope: Scope, e1: Expr, e2: Expr, e1Type: Type): Expr? {
-        return null
     }
 
     private fun desugarUnaryPass(scope: Scope, exprs: List<Expr>): List<Expr> {

@@ -6,15 +6,31 @@ import net.globulus.adam.frontend.parser.TypeInferno
 interface Value : Type
 
 class Sym(val value: String) : Expr(), Value {
+    override var alias: Sym? = null
     override var type: Type? = null
-    var gens: GensTable? = null // ifBranching..[T]
+    var gens: List<Sym>? = null // ifBranching..[T]
+
+    override fun replacing(genTable: GenTable): Type {
+        for (genSym in genTable.syms) {
+            if (genSym == this) {
+                return genTable[genSym]
+            }
+        }
+        return this
+    }
 
     override fun toValue(args: ArgList?): Value {
         return this
     }
 
     override fun toString(): String {
-        return value
+        return alias?.toString()
+            ?: StringBuilder(value).apply {
+                gens?.let {
+                    append("..")
+                    append(it.joinToString(", ", "[" , "]"))
+                }
+            }.toString()
     }
 
     override fun equals(other: Any?): Boolean {
@@ -48,7 +64,12 @@ class Sym(val value: String) : Expr(), Value {
 }
 
 class Str(val value: String) : Expr(), Value {
+    override var alias: Sym? = null
     override var type: Type? = null
+
+    override fun replacing(genTable: GenTable): Type {
+        return this
+    }
 
     override fun toValue(args: ArgList?): Value {
         return this
@@ -68,7 +89,12 @@ class Str(val value: String) : Expr(), Value {
 }
 
 class Num(val value: Double) : Expr(), Value {
+    override var alias: Sym? = null
     override var type: Type? = null
+
+    override fun replacing(genTable: GenTable): Type {
+        return this
+    }
 
     override fun toValue(args: ArgList?): Value {
         return this

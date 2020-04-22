@@ -13,7 +13,7 @@ adam ifBranching [T]..[
     Num wasTrue,
     T result,
     {[Num condition, T block] ifBranching..[T]} elsif,
-    {[Num block] T} else
+    {[T block] T} else
 ]
 adam if [T]..{[Num condition, {T} block] ifBranching..[T]}
 adam foreach [T]..{[[T... vals] array, {[T it] [T... vals]} block] [T... vals]}
@@ -30,6 +30,7 @@ adam return {[Num arg]Num}
     c = do(6, 7)
     a.=(3).+(4)
     a.=(3).+(4).+(5)
+
     if (a) {
         10
     } elsif (b) {

@@ -3,10 +3,12 @@ package net.globulus.adam.api
 import net.globulus.adam.frontend.parser.TypeInfernal
 
 sealed class AdamList<E>(val props: List<E>) : Expr(), Value {
+    override var alias: Sym? = null
+
     abstract fun get(sym: Sym): Pair<Type?, Expr?>?
 
     override fun toString(): String {
-        return props.joinToString(", ", "[", "]")
+        return alias?.toString() ?: props.joinToString(", ", "[", "]")
     }
 
     override fun toValue(args: ArgList?): Value {
@@ -19,6 +21,26 @@ class StructList(val gens: GenList?, props: List<Prop>) : AdamList<StructList.Pr
 
     override fun get(sym: Sym): Pair<Type?, Expr?>? {
         return props.find { it.sym == sym }?.let { it.type to it.expr }
+    }
+
+    override fun replacing(genTable: GenTable): Type {
+        return StructList(null, props.map {
+            Prop(it.type.replacing(genTable), it.sym, it.expr)
+        })
+    }
+
+    /**
+     * The following use case: ifBranching..[T]
+     * Figures out which type in [gens] does T refer to, and replaces that with T from [inferredGenTable]
+     */
+    fun getMergedGenTable(originalSym: Sym, inferredGenTable: GenTable): GenTable {
+        val genTable = GenTable()
+        gens?.props?.let {
+            for (i in it.indices) {
+                genTable[it[i].sym] = inferredGenTable[originalSym.gens!![i]]
+            }
+        }
+        return genTable
     }
 
     class Prop(val type: Type, val sym: Sym, val expr: Expr?) {
@@ -35,6 +57,11 @@ open class RawList(scope: Scope,
                    props: List<Prop>
 ) : AdamList<RawList.Prop>(props) {
     override var type: Type? = TypeInfernal.infer(scope, this)
+
+    override fun replacing(genTable: GenTable): Type {
+        return this
+    }
+
     override fun get(sym: Sym): Pair<Type?, Expr?>? {
         return props.find { it.sym == sym }?.let { null to it.expr }
     }
@@ -68,6 +95,13 @@ class GenList(props: List<Prop>) : AdamList<GenList.Prop>(props) {
     override fun get(sym: Sym): Pair<Type?, Expr?>? {
         return props.find { it.sym == sym }?.let { it.type to null }
     }
+    override fun replacing(genTable: GenTable): Type {
+        return GenList(props.map {
+            Prop(it.type?.replacing(genTable), it.sym)
+        })
+    }
+
+    operator fun contains(sym: Sym) = props.find { it.sym == sym } != null
 
     fun asStructList() = StructList(null, props.map { prop ->
         prop.type?.let { type ->

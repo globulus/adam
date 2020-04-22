@@ -1,13 +1,22 @@
 package net.globulus.adam.api
 
-interface Type
+interface Type {
+    var alias: Sym?
+    fun replacing(genTable: GenTable): Type
+}
 
 class Blockdef(val gens: GenList?,
                val rec: Sym?,
                val args: StructList?,
                val ret: Type) : Type {
+    override var alias: Sym? = null
+
+    override fun replacing(genTable: GenTable): Type {
+        return Blockdef(gens, rec?.replacing(genTable) as? Sym, args?.replacing(genTable) as? StructList, ret.replacing(genTable))
+    }
+
     override fun toString(): String {
-        return StringBuilder().apply {
+        return alias?.toString() ?: StringBuilder().apply {
             gens?.let {
                 append(gens.toString())
                 append("..")
@@ -29,13 +38,18 @@ class Blockdef(val gens: GenList?,
 }
 
 class Vararg(val embedded: Type) : Type {
+    override var alias: Sym? = null
+    override fun replacing(genTable: GenTable): Type {
+        return Vararg(embedded.replacing(genTable))
+    }
+
     override fun toString(): String {
-        return "$embedded..."
+        return "${alias ?: embedded}..."
     }
 }
 
-class GensTable {
-    private val syms = mutableSetOf<Sym>()
+class GenTable {
+    internal val syms = mutableSetOf<Sym>()
     private val types = mutableMapOf<Sym, Type>()
 
     val size get() = syms.size
@@ -57,5 +71,7 @@ class GensTable {
                 UnsupportedOperationException("Why are you even getting this? $sym")
             }
     }
+
+    operator fun contains(sym: Sym) = sym in syms
 }
 

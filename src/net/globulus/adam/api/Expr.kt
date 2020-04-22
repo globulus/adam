@@ -1,5 +1,7 @@
 package net.globulus.adam.api
 
+import net.globulus.adam.frontend.parser.GenericsException
+import net.globulus.adam.frontend.parser.ParserLog
 import net.globulus.adam.frontend.parser.TypeInfernal
 import net.globulus.adam.frontend.parser.ValidationException
 
@@ -55,7 +57,9 @@ class Block(val args: StructList?,
 class Call(val scope: Scope,
            val op: Getter,
            val args: ArgList) : Expr() {
+
     override var type: Type? = null
+    private var genTable: GenTable? = null
 
     override fun toValue(args: ArgList?): Value {
         TODO("Not yet implemented")
@@ -71,13 +75,65 @@ class Call(val scope: Scope,
             if (args.props.size != it.args?.props?.size ?: 0) {
                 throw ValidationException("Args arities don't match!")
             }
-            for (i in args.props.indices) {
-                // TODO validate by Syms
-                if (TypeInfernal.infer(scope, args.props[i].expr, true) != TypeInfernal.bottomMostType(scope, it.args!!.props[i].type)) {
-                    throw ValidationException("Arg types don't match at index $i!")
+            inferGens(it)
+        } ?: throw ValidationException("Call type isn't a Blockdef but ${type!!::class.simpleName}!")
+    }
+
+    fun inferGens(blockdef: Blockdef) {
+        if (blockdef.gens == null) {
+            return
+        }
+        val gens = blockdef.gens
+        genTable = GenTable()
+        val props = mutableListOf<StructList.Prop>()
+        for (i in args.props.indices) {
+            val blockdefArg = blockdef.args!!.props[i]
+            // TODO validate by Syms
+            val suppliedArgType = reifyGenType(gens, TypeInfernal.infer(scope, args.props[i].expr, true), null)
+
+            val expectedArgType = reifyGenType(gens, TypeInfernal.bottomMostType(scope, blockdefArg.type), suppliedArgType)
+
+            if (expectedArgType != suppliedArgType) {
+                throw ValidationException("Arg types don't match at index $i!")
+            }
+
+            props += StructList.Prop(expectedArgType, blockdefArg.sym, null)
+        }
+        val reifiedRet = reifyGenType(gens, blockdef.ret, null)
+        type = Blockdef(null, blockdef.rec, StructList(null, props), reifiedRet)
+    }
+
+    fun reifyGenType(blockdefGens: GenList,
+                     checkedType: Type,
+                     controlType: Type?): Type {
+        if (checkedType is Sym) {
+            if (checkedType.gens != null) {
+                // If it has gens, it implies that it's a StructList underneath
+                val structList = TypeInfernal.infer(scope, checkedType, true) as StructList
+                val mergedGenTable = structList.getMergedGenTable(checkedType, genTable!!)
+                val replacedList = structList.replacing(mergedGenTable).apply {
+                    alias = Sym(checkedType.value).apply {
+                        gens = checkedType.gens!!.map { Sym(genTable!![it].toString()) }
+                    }
+                }
+                return replacedList
+            }
+            if (checkedType in blockdefGens) {
+                if (checkedType in genTable!!) {
+                    val genTableType = genTable!![checkedType]
+                    if (genTableType != controlType) {
+                        throw GenericsException("Generics type $checkedType is already defined as $genTableType, while the supplied arg is $controlType!")
+                    } else {
+                        return genTableType
+                    }
+                } else if (controlType != null) {
+                    genTable!![checkedType] = controlType
+                    ParserLog.v("Inferred generic type of $controlType for $checkedType.")
+                    return controlType
                 }
             }
-        } ?: throw ValidationException("Call type isn't a Blockdef but ${type!!::class.simpleName}!")
+        }
+        return checkedType
     }
 
     fun patchType(allTheWay: Boolean) = apply {

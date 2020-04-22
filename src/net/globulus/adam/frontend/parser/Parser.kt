@@ -108,12 +108,8 @@ class Parser(private val tokens: List<Token>) {
             }
         }
         if (match(TokenType.TWO_DOTS)) {
-            val gensList = rawList()
-            sym.gens = GensTable().apply {
-                for (prop in gensList.props) {
-                    set(prop.sym ?: prop.expr as Sym)
-                }
-            }
+            val genList = rawList()
+            sym.gens = genList.props.map { it.sym ?: it.expr as Sym }
             if (typeGens?.props?.size ?: 0 != sym.gens!!.size) {
                 throw ParseException(previous, "Supplied gens table doesn't match in arity with Blockdef gens table!")
             }

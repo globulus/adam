@@ -11,9 +11,14 @@ object TypeInfernal {
             if (expr.type is Sym) {
                 return infer(scope, expr.type as Sym, true)
             } else {
-                ((expr.type as? Blockdef)?.ret as? Sym)?.let {
-                    return infer(scope, it, true)
-                }
+                ((expr.type as? Blockdef)?.ret?.let { ret ->
+                    (ret as? Sym)?.let {
+                        return infer(scope, it, true)
+                    }
+                    (ret as? StructList)?.let {
+                        return it
+                    }
+                })
             }
         }
         return expr.type?.let { it }
@@ -34,7 +39,7 @@ object TypeInfernal {
         do {
             currentScope?.typeAliases?.get(sym)?.let {
                 return if (allTheWay && it is Sym) {
-                    infer(scope, it, allTheWay)
+                    infer(scope, it, allTheWay).apply { alias = it }
                 } else {
                     it
                 }
