@@ -81,10 +81,20 @@ class Call(val scope: Scope,
 
     fun inferGens(blockdef: Blockdef) {
         if (blockdef.gens == null) {
+            for (i in args.props.indices) {
+                // TODO validate by Syms
+                if (TypeInfernal.infer(scope, args.props[i].expr, true) != TypeInfernal.bottomMostType(
+                        scope,
+                        blockdef.args!!.props[i].type
+                    )
+                ) {
+                    throw ValidationException("Arg types don't match at index $i!")
+                }
+            }
             return
         }
-        val gens = blockdef.gens
-        genTable = GenTable()
+        val gens = blockdef.gens!!
+        genTable = (op.origin as? Call)?.genTable ?: GenTable()
         val props = mutableListOf<StructList.Prop>()
         for (i in args.props.indices) {
             val blockdefArg = blockdef.args!!.props[i]

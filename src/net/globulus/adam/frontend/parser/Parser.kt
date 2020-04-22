@@ -144,7 +144,13 @@ class Parser(private val tokens: List<Token>) {
 
     private fun structList(gens: GenList? = null): StructList {
         return StructList(gens, parseListWithAtLeastOneElement("struct") {
-            val type = type()
+            val type = type().apply {
+                if (this is Blockdef) {
+                    this.gens = gens
+                } else if (this is StructList) {
+                    this.gens = gens
+                }
+            }
             val sym = consumeSym("Expected Sym after type in struct list prop")
             var expr: Expr? = null
             if (!check(TokenType.RIGHT_BRACKET, TokenType.COMMA, TokenType.NEWLINE)) {

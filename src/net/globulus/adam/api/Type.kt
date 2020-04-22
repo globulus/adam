@@ -5,10 +5,11 @@ interface Type {
     fun replacing(genTable: GenTable): Type
 }
 
-class Blockdef(val gens: GenList?,
-               val rec: Sym?,
-               val args: StructList?,
-               val ret: Type) : Type {
+class Blockdef(
+    var gens: GenList?,
+    val rec: Sym?,
+    val args: StructList?,
+    val ret: Type) : Type {
     override var alias: Sym? = null
 
     override fun replacing(genTable: GenTable): Type {

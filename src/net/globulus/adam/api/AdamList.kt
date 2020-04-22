@@ -16,7 +16,7 @@ sealed class AdamList<E>(val props: List<E>) : Expr(), Value {
     }
 }
 
-class StructList(val gens: GenList?, props: List<Prop>) : AdamList<StructList.Prop>(props), Type {
+class StructList(var gens: GenList?, props: List<Prop>) : AdamList<StructList.Prop>(props), Type {
     override var type: Type? = this
 
     override fun get(sym: Sym): Pair<Type?, Expr?>? {

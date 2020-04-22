@@ -133,7 +133,7 @@ object DesugarDaddy {
     private fun checkForProperPrior(scope: Scope, e1: Expr, argList: ArgList): Expr? {
         ParserLog.ds("Attempting proper prior check for $e1 with $argList")
         return try {
-            Call(scope, Getter(e1), argList).validate()
+            Call(scope, if (e1 is Getter) e1 else Getter(e1), argList).validate()
         } catch (e: ValidationException) {
             ParserLog.ds("Proper prior failed due to ${e.message}")
             null
