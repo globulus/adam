@@ -3,6 +3,8 @@ package net.globulus.adam.api
 interface Type {
     var alias: Sym?
     fun replacing(genTable: GenTable): Type
+    infix fun matches(other: Type?) = this == other
+    infix fun doesntMatch(other: Type?) = !matches(other)
 }
 
 class Blockdef(
@@ -42,6 +44,16 @@ class Vararg(val embedded: Type) : Type {
     override var alias: Sym? = null
     override fun replacing(genTable: GenTable): Type {
         return Vararg(embedded.replacing(genTable))
+    }
+
+    override fun matches(other: Type?): Boolean {
+        if (this == other) {
+            return true
+        }
+        if (other !is Vararg) {
+            return false
+        }
+        return embedded matches other.embedded
     }
 
     override fun toString(): String {

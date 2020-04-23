@@ -72,7 +72,7 @@ class Parser(private val tokens: List<Token>) {
             advance()
             val sym = consumeSym("Need Sym for typedef")
             currentlyDefinedType = CurrentlyDefinedType(sym)
-            val type = type()
+            val type = type().apply { alias = sym }
             currentlyDefinedType = null
             consume(TokenType.NEWLINE, "Need newline after typedef")
             ParserLog.v("Set type alias for $sym as $type")

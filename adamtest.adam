@@ -9,6 +9,9 @@ adam Num [
     {[Num arg] Num} +,
     {Num} -
 ]
+adam Str [
+    {Num} len
+]
 adam ifBranching [T]..[
     Num wasTrue,
     T result,
@@ -16,7 +19,7 @@ adam ifBranching [T]..[
     {[T block] T} else
 ]
 adam if [T]..{[Num condition, {T} block] ifBranching..[T]}
-adam foreach [T]..{[[T... vals] array, {[T it] [T... vals]} block] [T... vals]}
+adam foreach [T, R]..{[[T... vals] array, {[T it] R} block] R}
 adam do {[Num a, Num b]Num}
 adam return {[Num arg]Num}
 
@@ -52,4 +55,8 @@ adam return {[Num arg]Num}
        }
 
    if (a) { 100 } else if (b) { 200 } else { 300 }
+
+   foreach [1, 2, 3, 4] {
+      "aaa"
+   }
 }

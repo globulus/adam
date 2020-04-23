@@ -75,39 +75,42 @@ class Call(val scope: Scope,
             if (args.props.size != it.args?.props?.size ?: 0) {
                 throw ValidationException("Args arities don't match!")
             }
-            inferGens(it)
+            if (it.gens == null) {
+                for (i in args.props.indices) {
+                    // TODO validate by Syms
+                    if (TypeInfernal.infer(scope, args.props[i].expr, true) doesntMatch
+                            TypeInfernal.bottomMostType(scope, it.args!!.props[i].type)) {
+                        throw ValidationException("Arg types don't match at index $i!")
+                    }
+                }
+            } else {
+                inferGens(it, it.gens!!)
+            }
         } ?: throw ValidationException("Call type isn't a Blockdef but ${type!!::class.simpleName}!")
     }
 
-    fun inferGens(blockdef: Blockdef) {
-        if (blockdef.gens == null) {
-            for (i in args.props.indices) {
-                // TODO validate by Syms
-                if (TypeInfernal.infer(scope, args.props[i].expr, true) != TypeInfernal.bottomMostType(
-                        scope,
-                        blockdef.args!!.props[i].type
-                    )
-                ) {
-                    throw ValidationException("Arg types don't match at index $i!")
-                }
-            }
-            return
+    fun inferGens(blockdef: Blockdef, gens: GenList) {
+        if (genTable == null) {
+            genTable = (op.origin as? Call)?.genTable ?: GenTable()
         }
-        val gens = blockdef.gens!!
-        genTable = (op.origin as? Call)?.genTable ?: GenTable()
         val props = mutableListOf<StructList.Prop>()
         for (i in args.props.indices) {
             val blockdefArg = blockdef.args!!.props[i]
             // TODO validate by Syms
-            val suppliedArgType = reifyGenType(gens, TypeInfernal.infer(scope, args.props[i].expr, true), null)
-
-            val expectedArgType = reifyGenType(gens, TypeInfernal.bottomMostType(scope, blockdefArg.type), suppliedArgType)
-
-            if (expectedArgType != suppliedArgType) {
-                throw ValidationException("Arg types don't match at index $i!")
+            val suppliedArgType = TypeInfernal.infer(scope, args.props[i].expr, true)
+            val expectedArgType = TypeInfernal.bottomMostType(scope, blockdefArg.type)
+            val inferredType = if (suppliedArgType matches expectedArgType) {
+                expectedArgType
+            } else {
+                val suppliedReifiedArgType = reifyGenType(gens, suppliedArgType, null)
+                val expectedReifiedArgType = reifyGenType(gens, expectedArgType, suppliedReifiedArgType)
+                if (expectedReifiedArgType doesntMatch suppliedReifiedArgType) {
+                    throw ValidationException("Arg types don't match at index $i!")
+                }
+                expectedReifiedArgType
             }
 
-            props += StructList.Prop(expectedArgType, blockdefArg.sym, null)
+            props += StructList.Prop(inferredType, blockdefArg.sym, null)
         }
         val reifiedRet = reifyGenType(gens, blockdef.ret, null)
         type = Blockdef(null, blockdef.rec, StructList(null, props), reifiedRet)
@@ -131,7 +134,7 @@ class Call(val scope: Scope,
             if (checkedType in blockdefGens) {
                 if (checkedType in genTable!!) {
                     val genTableType = genTable!![checkedType]
-                    if (genTableType != controlType) {
+                    if (controlType != null && genTableType doesntMatch controlType) {
                         throw GenericsException("Generics type $checkedType is already defined as $genTableType, while the supplied arg is $controlType!")
                     } else {
                         return genTableType
@@ -142,6 +145,16 @@ class Call(val scope: Scope,
                     return controlType
                 }
             }
+        } else if (checkedType is StructList && controlType is StructList) {
+            val props = mutableListOf<StructList.Prop>()
+            for (i in checkedType.props.indices) {
+                val prop = checkedType.props[i]
+                val reifiedType = reifyGenType(blockdefGens, prop.type, controlType.props[i].type)
+                props += StructList.Prop(reifiedType, prop.sym, prop.expr)
+            }
+            return StructList(checkedType.gens, props)
+        } else if (checkedType is Vararg && controlType is Vararg) {
+            return Vararg(reifyGenType(blockdefGens, checkedType.embedded, controlType.embedded))
         }
         return checkedType
     }

@@ -256,7 +256,7 @@ object DesugarDaddy {
                     (e2Type as? Blockdef)?.let { e2Blockdef ->
                         e2Blockdef.rec?.let { e2RecSym ->
                             val recType = TypeInfernal.infer(scope, e2RecSym, true)
-                            return if (recType == list) {
+                            return if (recType matches list) {
                                 desugarBinaryOnFoundMember(scope, e1, e2Sym, e2Type, e3)
                             } else {
                                 ParserLog.ds("E2 rectype $recType doesn't match $list, bailing")
@@ -291,7 +291,7 @@ object DesugarDaddy {
                     // when it fact it should be identified as StructList
                     firstArgType = TypeInfernal.infer(scope, firstArgType)
                 }
-                if (e3Type == firstArgType) {
+                if (e3Type matches firstArgType) {
                     ParserLog.ds("Returning binary desugar")
                     Call(scope,
                         Getter(e1, e2Sym).apply { type = memberType },

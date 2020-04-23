@@ -1,8 +1,10 @@
 package net.globulus.adam.api
 
+import net.globulus.adam.frontend.parser.ParserLog
 import net.globulus.adam.frontend.parser.TypeInfernal
+import net.globulus.adam.frontend.parser.ValidationException
 
-sealed class AdamList<E>(val props: List<E>) : Expr(), Value {
+sealed class AdamList<E : AdamList.Prop>(val props: List<E>) : Expr(), Value {
     override var alias: Sym? = null
 
     abstract fun get(sym: Sym): Pair<Type?, Expr?>?
@@ -13,6 +15,31 @@ sealed class AdamList<E>(val props: List<E>) : Expr(), Value {
 
     override fun toValue(args: ArgList?): Value {
         return this
+    }
+
+    override fun matches(other: Type?): Boolean {
+        if (this == other) {
+            return true
+        }
+        if (other !is AdamList<*>) {
+            return false
+        }
+        if (props.size != other.props.size) {
+            // Try varargs
+            return try {
+                val varargProps = props.reduceToVararg()
+                val otherVarargProps = other.props.reduceToVararg()
+                varargProps.matches(otherVarargProps)
+            } catch (e: ValidationException) {
+                ParserLog.v(e.message!!)
+                false
+            }
+        }
+        return props.matches(other.props)
+    }
+
+    interface Prop {
+        val type: Type
     }
 }
 
@@ -43,7 +70,7 @@ class StructList(var gens: GenList?, props: List<Prop>) : AdamList<StructList.Pr
         return genTable
     }
 
-    class Prop(val type: Type, val sym: Sym, val expr: Expr?) {
+    class Prop(override val type: Type, val sym: Sym, val expr: Expr?) : AdamList.Prop {
         override fun toString(): String {
             val str = "$type $sym"
             return expr?.let {
@@ -56,7 +83,17 @@ class StructList(var gens: GenList?, props: List<Prop>) : AdamList<StructList.Pr
 open class RawList(scope: Scope,
                    props: List<Prop>
 ) : AdamList<RawList.Prop>(props) {
-    override var type: Type? = TypeInfernal.infer(scope, this)
+
+    override var type: Type? = null
+
+    init {
+        props.forEach { it.scope = scope }
+        type = try {
+            StructList(null, props.reduceToVararg())
+        } catch (e: ValidationException) {
+            TypeInfernal.infer(scope, this)
+        }
+    }
 
     override fun replacing(genTable: GenTable): Type {
         return this
@@ -66,8 +103,14 @@ open class RawList(scope: Scope,
         return props.find { it.sym == sym }?.let { null to it.expr }
     }
 
-    class Prop(val sym: Sym?, val expr: Expr) {
+    class Prop(val sym: Sym?, val expr: Expr) : AdamList.Prop {
         constructor(expr: Expr) : this(null, expr)
+
+        internal lateinit var scope: Scope
+
+        override val type: Type
+            get() = TypeInfernal.infer(scope, expr, true)
+
         override fun toString(): String {
             return sym?.let {
                 "$it $expr"
@@ -93,27 +136,75 @@ class GenList(props: List<Prop>) : AdamList<GenList.Prop>(props) {
     override var type: Type? = this
 
     override fun get(sym: Sym): Pair<Type?, Expr?>? {
-        return props.find { it.sym == sym }?.let { it.type to null }
+        return props.find { it.sym == sym }?.let { it.superType to null }
     }
     override fun replacing(genTable: GenTable): Type {
         return GenList(props.map {
-            Prop(it.type?.replacing(genTable), it.sym)
+            Prop(it.superType?.replacing(genTable), it.sym)
         })
     }
 
     operator fun contains(sym: Sym) = props.find { it.sym == sym } != null
 
     fun asStructList() = StructList(null, props.map { prop ->
-        prop.type?.let { type ->
+        prop.superType?.let { type ->
             StructList.Prop(type, prop.sym, null)
         } ?: throw UnsupportedOperationException("Unable to convert this gens list to struct list!")
     })
 
-    class Prop(val type: Type?, val sym: Sym) {
+    class Prop(val superType: Type?, val sym: Sym) : AdamList.Prop {
+        override val type: Type
+            get() = superType!!
+
         override fun toString(): String {
-            return type?.let {
+            return superType?.let {
                 "$it $sym"
             } ?: sym.toString()
         }
     }
+}
+
+fun <E : AdamList.Prop> List<E>.matches(other: List<E>): Boolean {
+    if (size != other.size) {
+        return false
+    }
+    for (i in indices) {
+        if (get(i).type doesntMatch other[i].type) {
+            return false
+        }
+    }
+    return true
+}
+
+fun <E : AdamList.Prop> List<E>.reduceToVararg(): List<StructList.Prop> {
+    val result = mutableListOf<StructList.Prop>()
+    var i = 0
+    while (i < size) {
+        val type = get(i).type
+        var j = i + 1
+        while (j < size) {
+            if (get(j).type matches type) {
+                j++
+            } else {
+                break
+            }
+        }
+        val newType: Type
+        if (j - i > 1) { // Found at least one vararg
+            newType = Vararg(type)
+            i = j // Start from where new type was found
+        } else {
+            newType = type
+            i++
+        }
+        result += StructList.Prop(newType, Sym.EMPTY, null)
+    }
+    if (result.count { it.type is Vararg } > 1) {
+        throw ValidationException("Found more than one Vararg in List!")
+    }
+    val varargIndex = result.indexOfFirst { it.type is Vararg }
+    if (varargIndex != -1 && varargIndex != result.size - 1) {
+        throw ValidationException("Vararg must be last in a list!")
+    }
+    return result
 }
