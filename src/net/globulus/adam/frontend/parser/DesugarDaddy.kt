@@ -247,33 +247,16 @@ object DesugarDaddy {
         reduceToSym(e2)?.let { e2Sym ->
             val e1Type = TypeInfernal.infer(scope, e1, true)
             (e1Type as? AdamList<*>)?.let { list ->
-                try {
+                return try {
                     val memberType = TypeInfernal.infer(scope, list, e2Sym)
-                    return desugarBinaryOnFoundMember(scope, e1, e2Sym, memberType, e3)
+                    desugarBinaryOnFoundMember(scope, e1, e2Sym, memberType, e3)
                 } catch (e: TypeInferno) {
                     ParserLog.ds("Member not found for $e2Sym on $list, will attempt blockdef with rec")
-                    val e2Type = TypeInfernal.infer(scope, e2Sym, true)
-                    (e2Type as? Blockdef)?.let { e2Blockdef ->
-                        e2Blockdef.rec?.let { e2RecSym ->
-                            val recType = TypeInfernal.infer(scope, e2RecSym, true)
-                            return if (recType matches list) {
-                                desugarBinaryOnFoundMember(scope, e1, e2Sym, e2Type, e3)
-                            } else {
-                                ParserLog.ds("E2 rectype $recType doesn't match $list, bailing")
-                                null
-                            }
-                        } ?: run {
-                            ParserLog.ds("E2 blockdef doesn't have a rec, bailing")
-                            return null
-                        }
-                    } ?: run {
-                        ParserLog.ds("E2 isn't a blockdef but ${e2Type::class.simpleName} $e2, bailing")
-                        return null
-                    }
+                    attemptBinaryOnBlockdefWithRec(scope, e1, e1Type, e2Sym, e3)
                 }
             } ?: run {
-                ParserLog.ds("E1 isn't a list but ${e1Type::class.simpleName} $e1Type, bailing")
-                return null
+                ParserLog.ds("E1 isn't a list but ${e1Type::class.simpleName} $e1Type, will attempt blockdef with rec")
+                return attemptBinaryOnBlockdefWithRec(scope, e1, TypeInfernal.bottomMostType(scope, e1Type), e2Sym, e3)
             }
         } ?: run {
             ParserLog.ds("E2 isn't a symbol but ${e2::class.simpleName} $e2")
@@ -281,15 +264,64 @@ object DesugarDaddy {
         }
     }
 
-    private fun desugarBinaryOnFoundMember(scope: Scope, e1: Expr, e2Sym: Sym, memberType: Type, e3: Expr): Expr? {
+    private fun attemptBinaryOnBlockdefWithRec(scope: Scope, e1: Expr, e1Type: Type, e2Sym: Sym, e3: Expr): Expr? {
+        val e2Type = TypeInfernal.infer(scope, e2Sym, true)
+        (e2Type as? Blockdef)?.let { e2Blockdef ->
+            e2Blockdef.rec?.let { e2RecType ->
+                var genTable: GenTable? = null
+                var recType = if (e2RecType is Sym) TypeInfernal.infer(scope, e2RecType, true) else e2RecType
+                if (recType doesntMatch e1Type) {
+                    val typeGenTablePair = attemptToInferRecGen(scope, e2Blockdef, e1Type)
+                    if (typeGenTablePair == null) {
+                        ParserLog.ds("Rec type $recType is different than E1 type $e1Type, bailing")
+                        return null
+                    } else {
+                        recType = typeGenTablePair.type
+                        genTable = typeGenTablePair.genTable
+                    }
+                }
+                val blockdef = Blockdef(e2Blockdef.gens, recType, e2Blockdef.args, e2Blockdef.ret)
+                return desugarBinaryOnFoundMember(scope, e1, e2Sym, blockdef, e3, genTable)
+            } ?: run {
+                ParserLog.ds("E2 blockdef doesn't have a rec, bailing")
+                return null
+            }
+        } ?: run {
+            ParserLog.ds("E2 isn't a blockdef but ${e2Type::class.simpleName} $e2Sym, bailing")
+            return null
+        }
+    }
+
+    private fun desugarBinaryOnFoundMember(scope: Scope,
+                                           e1: Expr,
+                                           e2Sym: Sym,
+                                           memberType: Type,
+                                           e3: Expr,
+                                           genTable: GenTable? = null
+    ): Expr? {
         (memberType as? Blockdef)?.let {
             return if (it.args?.props?.size == 1) {
                 val e3Type = TypeInfernal.infer(scope, e3, true)
+                var auxGenTable = genTable
                 var firstArgType = it.args.props[0].type
                 if (firstArgType is Sym) {
                     // This handles the case when the return type of a block is still stored as Num
-                    // when it fact it should be identified as StructList
-                    firstArgType = TypeInfernal.infer(scope, firstArgType)
+                    // when it fact it should be identified as StructList, or if it's an uniferred gen
+                    try {
+                        firstArgType = TypeInfernal.infer(scope, firstArgType)
+                    } catch (e: UndefinedSymException) {
+                        // If the sym couldn't be inferred, it might be because it's actually a gen type
+                        if (it.gens?.contains(firstArgType) == true) {
+                            ParserLog.ds("First arg type is actually a gen, inferring $firstArgType as ${e3.type!!}")
+                            if (auxGenTable == null) {
+                                auxGenTable = GenTable()
+                            }
+                            auxGenTable[firstArgType] = e3.type!!
+                            firstArgType = e3.type!!
+                        } else {
+                            throw e
+                        }
+                    }
                 }
                 if (e3Type matches firstArgType) {
                     ParserLog.ds("Returning binary desugar")
@@ -298,6 +330,7 @@ object DesugarDaddy {
                         ArgList(scope, listOf(RawList.Prop(e3)))
                     ).apply {
                         type = TypeInfernal.bottomMostType(scope, memberType)
+                        this.genTable = auxGenTable
                     }.validate()
                 } else {
                     ParserLog.ds("E3 type ${e3Type::class.simpleName} $e3Type doesn't match first arg type ${firstArgType::class.simpleName} $firstArgType")
@@ -320,4 +353,46 @@ object DesugarDaddy {
             else -> null
         }
     }
+
+    private fun attemptToInferRecGen(scope: Scope, blockdef: Blockdef, e1Type: Type): TypeGenTablePair? {
+        if (blockdef.gens == null) {
+            return null
+        }
+        return when (blockdef.rec) {
+            is Optional -> {
+                if (e1Type !is Optional) {
+                    null
+                } else {
+                    val genTable = inferGenericRec(scope, blockdef.gens!!, blockdef.rec.embedded as Sym, e1Type.embedded)
+                    if (genTable != null) {
+                        TypeGenTablePair(Optional(e1Type), genTable)
+                    } else {
+                        null
+                    }
+                }
+            }
+            is Sym -> {
+                val genTable = inferGenericRec(scope, blockdef.gens!!, blockdef.rec, e1Type)
+                if (genTable != null) {
+                    TypeGenTablePair(e1Type, genTable)
+                } else {
+                    null
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun inferGenericRec(scope: Scope, gens: GenList, rec: Sym, e1Type: Type): GenTable? {
+        return if (rec in gens) {
+            ParserLog.ds("Inferred rec type $rec as $e1Type")
+            GenTable().apply {
+                set(rec, if (e1Type is Sym) TypeInfernal.infer(scope, e1Type, true) else e1Type)
+            }
+        } else {
+            null
+        }
+    }
+
+    private class TypeGenTablePair(val type: Type, val genTable: GenTable)
 }

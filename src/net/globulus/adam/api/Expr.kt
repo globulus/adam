@@ -59,7 +59,7 @@ class Call(val scope: Scope,
            val args: ArgList) : Expr() {
 
     override var type: Type? = null
-    private var genTable: GenTable? = null
+    var genTable: GenTable? = null
 
     override fun toValue(args: ArgList?): Value {
         TODO("Not yet implemented")
@@ -155,6 +155,8 @@ class Call(val scope: Scope,
             return StructList(checkedType.gens, props)
         } else if (checkedType is Vararg && controlType is Vararg) {
             return Vararg(reifyGenType(blockdefGens, checkedType.embedded, controlType.embedded))
+        } else if (checkedType is Optional && controlType is Optional) {
+            return Optional(reifyGenType(blockdefGens, checkedType.embedded, controlType.embedded))
         }
         return checkedType
     }

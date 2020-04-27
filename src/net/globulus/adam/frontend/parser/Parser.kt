@@ -1,6 +1,7 @@
 package net.globulus.adam.frontend.parser
 
 import net.globulus.adam.api.*
+import net.globulus.adam.api.Optional
 import net.globulus.adam.frontend.Token
 import net.globulus.adam.frontend.TokenType
 import java.util.*
@@ -88,10 +89,12 @@ class Parser(private val tokens: List<Token>) {
         } else {
             structListOrBlockdef()
         }
-        return if (match(TokenType.THREE_DOTS)) {
-            Vararg(type)
-        } else {
-            type
+        return when {
+            match(TokenType.THREE_DOTS) -> Vararg(type)
+            match(TokenType.QUOTE) -> Optional(type)
+            else -> {
+                type
+            }
         }
     }
 
@@ -125,9 +128,12 @@ class Parser(private val tokens: List<Token>) {
             return gens.asStructList()
         }
         currentlyDefinedType?.setGensIfNull(gens)
-        var rec: Sym? = null
+        var rec: Type? = null
         if (match(TokenType.SYM)) {
             rec = previousSym
+            if (match(TokenType.QUOTE)) {
+                rec = Optional(rec)
+            }
             consume(TokenType.DOT, "Expected . after rec")
         }
         if (match(TokenType.LEFT_BRACE)) {

@@ -9,7 +9,7 @@ interface Type {
 
 class Blockdef(
     var gens: GenList?,
-    val rec: Sym?,
+    val rec: Type?,
     val args: StructList?,
     val ret: Type) : Type {
     override var alias: Sym? = null
@@ -42,6 +42,7 @@ class Blockdef(
 
 class Vararg(val embedded: Type) : Type {
     override var alias: Sym? = null
+
     override fun replacing(genTable: GenTable): Type {
         return Vararg(embedded.replacing(genTable))
     }
@@ -61,6 +62,28 @@ class Vararg(val embedded: Type) : Type {
     }
 }
 
+class Optional(val embedded: Type) : Type {
+    override var alias: Sym? = null
+
+    override fun replacing(genTable: GenTable): Type {
+        return Optional(embedded.replacing(genTable))
+    }
+
+    override fun matches(other: Type?): Boolean {
+        if (this == other) {
+            return true
+        }
+        if (other !is Optional) {
+            return false
+        }
+        return embedded matches other.embedded
+    }
+
+    override fun toString(): String {
+        return "${alias ?: embedded}\""
+    }
+}
+
 class GenTable {
     internal val syms = mutableSetOf<Sym>()
     private val types = mutableMapOf<Sym, Type>()
@@ -72,6 +95,9 @@ class GenTable {
     }
 
     operator fun set(sym: Sym, type: Type) {
+        if (sym in syms && get(sym) doesntMatch type) {
+            throw IllegalStateException("Attempting to set $type for $sym when it's already set as ${get(sym)}")
+        }
         types[sym] = type
         syms += sym
     }

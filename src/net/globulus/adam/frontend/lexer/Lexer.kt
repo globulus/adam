@@ -93,6 +93,9 @@ class Lexer(private val source: String) {
         }
         val text = source.substring(start, current)
         addToken(TokenType.SYM, Sym(text))
+        if (match('"')) {
+            addToken(TokenType.QUOTE)
+        }
     }
 
     private fun number() {

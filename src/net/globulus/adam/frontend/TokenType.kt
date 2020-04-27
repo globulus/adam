@@ -11,6 +11,7 @@ enum class TokenType {
     DOT,
     TWO_DOTS,
     THREE_DOTS,
+    QUOTE,
     NEWLINE,
     SYM,
     STR,
