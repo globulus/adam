@@ -6,7 +6,21 @@ import net.globulus.adam.frontend.Token
 import net.globulus.adam.frontend.TokenType
 import java.util.*
 
-class Parser(private val tokens: List<Token>) {
+/**
+ * parserconfig reqs:
+ * 1. ignored syms - to allow for fn a(Int b = 2, Float c = 3) -> Int, ignoring = and ->
+ * 2. import resolver - figure out import statement and pass it to the resolver.
+ * 3. typedef alternatives - var a = 5 puts adam a Num above, int b into adam b int, etc.
+ *  3.1 delegated typedef alternatives - enum something { A;B;C } will have to insert adam something and then custom StructList
+ * 4. subtypes - adam sub Audi Car will mean that anywhere Car is applicable, Audi can be used, but not the opposite
+ * 5. extracted subtype defs - class A : B will output adam sub A B above
+ * 6. markers which constructs break the block - TBD
+ * 7. markers which constructs throw exceptions - TBD
+ * 8. this marker - which Sym is equivalent to this (so that a language designer can use self).
+ */
+
+class Parser(private val config: ParserConfig,
+             private val tokens: List<Token>) {
 
     private var current = 0
 

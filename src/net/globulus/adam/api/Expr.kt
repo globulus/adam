@@ -72,19 +72,20 @@ class Call(val scope: Scope,
     fun validate() = apply {
         patchType(false)
         (type as? Blockdef)?.let {
-            if (args.props.size != it.args?.props?.size ?: 0) {
+            var blockdef = it
+            if (args.props.size != blockdef.args?.props?.size ?: 0) {
                 throw ValidationException("Args arities don't match!")
             }
-            if (it.gens == null) {
-                for (i in args.props.indices) {
-                    // TODO validate by Syms
-                    if (TypeInfernal.infer(scope, args.props[i].expr, true) doesntMatch
-                            TypeInfernal.bottomMostType(scope, it.args!!.props[i].type)) {
-                        throw ValidationException("Arg types don't match at index $i!")
-                    }
+            if (blockdef.gens != null) {
+                inferGens(it, blockdef.gens!!)
+                blockdef = type as Blockdef // Reassign as type likely changed after gens were inferred
+            }
+            for (i in args.props.indices) {
+                // TODO validate by Syms
+                if (TypeInfernal.infer(scope, args.props[i].expr, true) doesntMatch
+                        TypeInfernal.bottomMostType(scope, blockdef.args!!.props[i].type)) {
+                    throw ValidationException("Arg types don't match at index $i!")
                 }
-            } else {
-                inferGens(it, it.gens!!)
             }
         } ?: throw ValidationException("Call type isn't a Blockdef but ${type!!::class.simpleName}!")
     }
