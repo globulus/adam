@@ -11,7 +11,8 @@ class Blockdef(
     var gens: GenList?,
     val rec: Type?,
     val args: StructList?,
-    val ret: Type) : Type {
+    val ret: Type
+) : Type {
     override var alias: Sym? = null
 
     override fun replacing(genTable: GenTable): Type {

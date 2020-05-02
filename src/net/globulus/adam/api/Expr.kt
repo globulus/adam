@@ -28,7 +28,8 @@ abstract class Expr {
     }
 }
 
-class Block(val args: StructList?,
+class Block(val bodyScope: Scope,
+            val args: StructList?,
             val ret: Type,
             val body: List<Expr>) : Expr() {
     override var type: Type? = ret

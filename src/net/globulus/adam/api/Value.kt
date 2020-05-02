@@ -88,7 +88,10 @@ class Str(val value: String) : Expr(), Value {
     }
 }
 
-class Num(val value: Double) : Expr(), Value {
+class Num(val doubleValue: Double?, val longValue: Long?) : Expr(), Value {
+
+    val isInt = (doubleValue == null)
+
     override var alias: Sym? = null
     override var type: Type? = null
 
@@ -101,14 +104,16 @@ class Num(val value: Double) : Expr(), Value {
     }
 
     override fun toString(): String {
-        return value.toString()
+        return (doubleValue ?: longValue!!).toString()
     }
 
     override fun equals(other: Any?): Boolean {
-        return value == (other as? Num)?.value
+        return (other as? Num)?.let {
+            doubleValue == it.doubleValue && longValue == it.longValue
+        } ?: false
     }
 
     override fun hashCode(): Int {
-        return value.hashCode()
+        return (doubleValue ?: longValue!!).hashCode()
     }
 }

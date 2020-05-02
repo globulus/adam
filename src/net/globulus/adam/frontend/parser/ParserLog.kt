@@ -1,7 +1,7 @@
 package net.globulus.adam.frontend.parser
 
 object ParserLog {
-    private val logLevel = Level.VERBOSE
+    private val logLevel = Level.NONE
 
     fun log(level: Level, message: String) {
         if (level < logLevel) {

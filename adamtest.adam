@@ -11,7 +11,8 @@ adam Num [
 ]
 adam Str [
     {Num} len,
-    {Num"} toNum
+    {Num"} toNum,
+    {Str} print
 ]
 adam ifBranching [T]..[
     Num wasTrue,
@@ -26,10 +27,17 @@ adam return {[Num arg]Num}
 
 adam ?? [T]..T".{[T else] T}
 
+adam l Num
+adam r Num
+
+l = 5
+r = (l + 4)
+
 {[Num a, Num b, Num c, Num d, {[Num a, {[Str arg] Num} block] Num} go]
     do(5, 6)
     return(10)
     - a
+    print "printThis"
     a = 5
     c = (a + b)
     d = (a + - d)

@@ -99,16 +99,21 @@ class Lexer(private val source: String) {
     }
 
     private fun number() {
+        var isDecimal = false
         while (isDigit(peek())) {
             advance()
         }
         if (peek() == '.' && isDigit(peekNext())) {
+            isDecimal = true
             advance()
             while (isDigit(peek())) {
                 advance()
             }
         }
-        addToken(TokenType.NUM, Num(source.substring(start, current).toDouble()))
+        val substr = source.substring(start, current)
+        val doubleVal = if (isDecimal) substr.toDouble() else null
+        val longVal = if (isDecimal) null else substr.toLong()
+        addToken(TokenType.NUM, Num(doubleVal, longVal))
     }
 
     private fun string(opener: Char) {

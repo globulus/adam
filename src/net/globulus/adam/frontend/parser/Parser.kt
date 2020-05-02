@@ -25,7 +25,7 @@ class Parser(private val config: ParserConfig,
     private var current = 0
 
     private val scopeStack = Stack<Scope>()
-    private val currentScope get() = scopeStack.peek()
+    internal val currentScope get() = scopeStack.peek()
 
     private var currentlyDefinedType: CurrentlyDefinedType? = null
 
@@ -389,7 +389,7 @@ class Parser(private val config: ParserConfig,
             ret = TypeInfernal.infer(bodyScope, body)
         }
         scopeStack.pop()
-        return Block(args, ret, body)
+        return Block(bodyScope, args, ret, body)
     }
 
     private fun argList(): ArgList {

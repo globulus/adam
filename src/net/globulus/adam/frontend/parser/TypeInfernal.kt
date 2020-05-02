@@ -3,8 +3,8 @@ package net.globulus.adam.frontend.parser
 import net.globulus.adam.api.*
 
 object TypeInfernal {
-    private val SYM_NUM = Sym("Num")
-    private val SYM_STR = Sym("Str")
+    val SYM_NUM = Sym("Num")
+    val SYM_STR = Sym("Str")
 
     fun infer(scope: Scope, expr: Expr, allTheWay: Boolean = false): Type {
         if (allTheWay) {
