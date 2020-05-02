@@ -3,8 +3,7 @@ package net.globulus.adam.frontend.compiler
 import net.globulus.adam.api.Sym
 import java.nio.ByteBuffer
 
-class Decompiler(val input: CompilerOutput) {
-
+class Decompiler(private val input: CompilerOutput) {
     private val buffer = ByteBuffer.wrap(input.byteCode)
 
     private var working = true
@@ -17,34 +16,83 @@ class Decompiler(val input: CompilerOutput) {
     }
 
     private fun decompOpCode(addNewline: Boolean = true): OpCode {
-        val opCode = OpCode.from(nextByte)
+        val opCode = nextOpCode
         printIndent()
         print("$opCode ")
         when (opCode) {
-            OpCode.DEF -> decompDef()
-            OpCode.LOAD -> decompLoad()
+            OpCode.DEF -> {
+                print("$nextSym ")
+                decompOpCode(false)
+            }
+//            OpCode.TYPE_ALIAS -> print("$nextSym ")
+            OpCode.TYPE_BLOCK, OpCode.TYPE_BLOCK_WITH_GENS, OpCode.TYPE_BLOCK_WITH_REC,
+                OpCode.TYPE_BLOCK_WITH_GENS_AND_REC -> decompBlockdef(opCode)
+            OpCode.TYPE_LIST, OpCode.TYPE_LIST_WITH_GENS -> decompStructList(opCode)
+            OpCode.TYPE_VARARG, OpCode.TYPE_OPTIONAL -> decompOpCode(false) // Decomp embedded
+            OpCode.SYM -> decompSym()
             OpCode.GET -> decompGet()
-            OpCode.CONST -> decompConst()
+            OpCode.CONST_FLOAT, OpCode.CONST_INT, OpCode.CONST_STR -> decompConst(opCode)
+            OpCode.BLOCK -> decompBlock()
             OpCode.CALL -> decompCall()
-            OpCode.ARGS -> decompArgs()
             OpCode.HALT -> working = false
         }
-        if (addNewline && opCode != OpCode.ARGS) {
+        if (addNewline) {
             println()
         }
         return opCode
     }
 
-    private fun decompDef() {
-        val spec = OpSpecifier.from(nextByte)
-        print("$spec ")
-        when (spec) {
-            OpSpecifier.DEF_STR, OpSpecifier.DEF_NUM, OpSpecifier.DEF_ELSE -> print("$nextSym ")
-            else -> throw IllegalStateException("Invalid opSpec for def $spec")
+    private fun decompBlockdef(opCode: OpCode) {
+        il++
+        val argLen = nextByte
+        if (argLen > 0) {
+            decompStructList(opCode, argLen)
         }
+        decompOpCode() // ret
+        if (opCode == OpCode.TYPE_BLOCK_WITH_GENS || opCode == OpCode.TYPE_BLOCK_WITH_GENS_AND_REC) {
+            decompGenList()
+        }
+        if (opCode == OpCode.TYPE_BLOCK_WITH_REC || opCode == OpCode.TYPE_BLOCK_WITH_GENS_AND_REC) {
+            decompOpCode()
+        }
+        il--
     }
 
-    private fun decompLoad() {
+    private fun decompStructList(opCode: OpCode, readLen: Byte? = null) {
+        val len = readLen ?: nextByte
+        print("$len ")
+        il++
+        if (len > 0) {
+            println()
+        }
+        for (i in 0 until len) {
+            decompOpCode(false)
+            printIndent()
+            print("$nextSym ")
+            if (nextOpCode == OpCode.ARG_EXPR) {
+                decompOpCode(false)
+            } else {
+                rollBack()
+            }
+            println()
+        }
+        if (opCode == OpCode.TYPE_LIST_WITH_GENS) {
+            decompGenList()
+        }
+        il--
+    }
+
+    private fun decompGenList() {
+        val len = nextByte
+        printIndent()
+        print("gens: ")
+        for (i in 0 until len) {
+            print("$nextSym ")
+        }
+        println()
+    }
+
+    private fun decompSym() {
         print("$nextSym ")
     }
 
@@ -52,43 +100,52 @@ class Decompiler(val input: CompilerOutput) {
         print("$nextSym ")
     }
 
-    private fun decompConst() {
-        val spec = OpSpecifier.from(nextByte)
-        print("$spec ")
-        when (spec) {
-            OpSpecifier.CONST_INT -> print("${buffer.long} ")
-            OpSpecifier.CONST_FLOAT -> print("${buffer.double} ")
-            OpSpecifier.CONST_STR -> print("${input.strTable[nextInt]} ")
-            else -> throw IllegalStateException("Invalid opSpec for const $spec")
+    private fun decompConst(opCode: OpCode) {
+        when (opCode) {
+            OpCode.CONST_INT -> print("${buffer.long} ")
+            OpCode.CONST_FLOAT -> print("${buffer.double} ")
+            OpCode.CONST_STR -> print("${input.strTable[nextInt]} ")
         }
+    }
+
+    private fun decompBlock() {
+        val argLen = nextByte
+        if (argLen > 0) {
+            decompStructList(OpCode.BLOCK, argLen)
+        }
+        decompOpCode(false) // ret
+        val bodyLen = nextInt
+        il++
+        for (i in 0 until bodyLen) {
+            decompOpCode()
+        }
+        il--
     }
 
     private fun decompCall() {
         il++
-        println()
-        decompOpCode()
-        var opCode: OpCode
-        do {
-            opCode = decompOpCode()
-        } while (opCode != OpCode.ARGS)
-        il--
-    }
-
-    private fun decompArgs() {
-        il++
-        println()
-        val len = nextInt
+        val len = nextByte
+        print("$len")
+        if (len > 0) {
+            println()
+        }
         for (i in 0 until len) {
             decompOpCode(i < len - 1)
         }
         il--
     }
 
+    private val nextOpCode: OpCode get() = OpCode.from(nextByte)
+
     private val nextByte: Byte get() = buffer.get()
 
     private val nextInt: Int get() = buffer.int
 
     private val nextSym: Sym get() = input.symTable[nextInt]
+
+    private fun rollBack() {
+        buffer.position(buffer.position() - 1)
+    }
 
     private fun printIndent() {
         print("  ".repeat(il))

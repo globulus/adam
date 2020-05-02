@@ -2,12 +2,12 @@ package net.globulus.adam.frontend.compiler
 
 import net.globulus.adam.api.*
 import net.globulus.adam.frontend.parser.ParserOutput
-import net.globulus.adam.frontend.parser.TypeInfernal
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
-class Compiler(val input: ParserOutput) {
+class Compiler(private val input: ParserOutput) {
 
-    private val byteCode: ByteBuffer = ByteBuffer.allocate(1024)
+    private val byteCode: ByteArrayOutputStream = ByteArrayOutputStream()
 
     private val symTable = mutableMapOf<Sym, Int>()
     private val symList = mutableListOf<Sym>()
@@ -23,10 +23,11 @@ class Compiler(val input: ParserOutput) {
             emitExpr(expr)
         }
         byteCode.put(OpCode.HALT) // Reached end of program
-        return CompilerOutput(byteCode.array(), symList.toTypedArray(), strList.toTypedArray())
+        return CompilerOutput(byteCode.toByteArray(), symList.toTypedArray(), strList.toTypedArray())
     }
 
     private fun emitScope(scope: Scope) {
+        byteCode.put(OpCode.PUSH_SCOPE)
         for ((sym, type) in scope.typeAliases) {
             emitDef(sym, type)
         }
@@ -34,9 +35,10 @@ class Compiler(val input: ParserOutput) {
 
     private fun emitExpr(expr: Expr) {
         when (expr) {
-            is Sym -> emitLoad(expr)
+            is Sym -> emitSym(expr)
             is Num -> emitNum(expr)
             is Str -> emitStr(expr)
+            is Block -> emitBlock(expr)
             is Getter -> emitGet(expr)
             is Call -> emitCall(expr)
 //            else -> throw IllegalArgumentException("Unable to emit expr $expr")
@@ -46,31 +48,101 @@ class Compiler(val input: ParserOutput) {
     private fun emitDef(sym: Sym, type: Type) {
         with(byteCode) {
             put(OpCode.DEF)
-            when (type) {
-                TypeInfernal.SYM_NUM -> put(OpSpecifier.DEF_NUM)
-                TypeInfernal.SYM_STR -> put(OpSpecifier.DEF_STR)
-                else -> put(OpSpecifier.DEF_ELSE)
-            }
-//                else -> throw IllegalArgumentException("Unable to get DEF_ OpSpecifier for $type")
             putInt(sym.index)
+            emitType(type)
         }
     }
 
-    private fun emitLoad(sym: Sym) {
+    private fun emitType(type: Type) {
         with(byteCode) {
-            put(OpCode.LOAD)
+            when (type) {
+                is Sym -> {
+                    put(OpCode.SYM)
+                    putInt(type.index)
+                }
+                is Blockdef -> emitBlockdef(type)
+                is StructList -> {
+                    put(if (type.gens != null) OpCode.TYPE_LIST_WITH_GENS else OpCode.TYPE_LIST)
+                    emitStructList(type)
+                }
+                is Vararg -> {
+                    put(OpCode.TYPE_VARARG)
+                    emitType(type.embedded)
+                }
+                is Optional -> {
+                    put(OpCode.TYPE_OPTIONAL)
+                    emitType(type.embedded)
+                }
+                else -> throw IllegalArgumentException("Unable to emit type for $type")
+            }
+        }
+    }
+
+    private fun emitBlockdef(blockdef: Blockdef) {
+        with(byteCode) {
+            if (blockdef.gens == null && blockdef.rec == null) {
+                put(OpCode.TYPE_BLOCK)
+            } else if (blockdef.gens != null && blockdef.rec != null) {
+                put(OpCode.TYPE_BLOCK_WITH_GENS_AND_REC)
+            } else if (blockdef.gens != null) {
+                put(OpCode.TYPE_BLOCK_WITH_GENS)
+            } else {
+                put(OpCode.TYPE_BLOCK_WITH_REC)
+            }
+            blockdef.args?.let {
+                emitStructList(it)
+            } ?: write(0)
+            emitType(blockdef.ret)
+            blockdef.gens?.let {
+                emitGenList(it)
+            }
+            blockdef.rec?.let {
+                emitType(it)
+            }
+        }
+    }
+
+    private fun emitStructList(list: StructList) {
+        with(byteCode) {
+            write(list.props.size)
+            for (prop in list.props) {
+                emitType(prop.type)
+                putInt(prop.sym.index)
+                prop.expr?.let { expr ->
+                    put(OpCode.ARG_EXPR)
+                    emitExpr(expr)
+                }
+            }
+            list.gens?.let {
+                emitGenList(it)
+            }
+        }
+    }
+
+    private fun emitGenList(list: GenList) {
+        with(byteCode) {
+            write(list.props.size)
+            for (prop in list.props) {
+                putInt(prop.sym.index) // TODO add superType
+            }
+        }
+        println()
+    }
+
+    private fun emitSym(sym: Sym) {
+        with(byteCode) {
+            put(OpCode.SYM)
             putInt(sym.index)
         }
     }
 
     private fun emitNum(num: Num) {
         with(byteCode) {
-            put(OpCode.CONST)
             if (num.doubleValue != null) {
-                put(OpSpecifier.CONST_FLOAT)
+                put(OpCode.CONST_FLOAT)
                 putDouble(num.doubleValue)
             } else {
-                put(OpSpecifier.CONST_INT)
+                put(OpCode.CONST_INT)
                 putLong(num.longValue!!)
             }
         }
@@ -84,9 +156,22 @@ class Compiler(val input: ParserOutput) {
             strCount - 1
         }
         with(byteCode) {
-            put(OpCode.CONST)
-            put(OpSpecifier.CONST_STR)
+            put(OpCode.CONST_STR)
             putInt(strIndex)
+        }
+    }
+
+    private fun emitBlock(block: Block) {
+        with(byteCode) {
+            put(OpCode.BLOCK)
+            block.args?.let {
+                emitStructList(it)
+            } ?: write(0)
+            emitType(block.ret)
+            putInt(block.body.size)
+            for (line in block.body) {
+                emitExpr(line)
+            }
         }
     }
 
@@ -101,23 +186,34 @@ class Compiler(val input: ParserOutput) {
     }
 
     private fun emitCall(call: Call) {
+        emitGet(call.op)
         with(byteCode) {
             put(OpCode.CALL)
-            emitGet(call.op)
-            put(OpCode.ARGS)
-            putInt(call.args.props.size)
+            write(call.args.props.size)
             for (prop in call.args.props) {
                 emitExpr(prop.expr)
             }
         }
     }
 
-    private fun ByteBuffer.put(opCode: OpCode) {
-        put(opCode.byte)
+//    private fun ByteBuffer.put(opCode: OpCode) {
+//        put(opCode.byte)
+//    }
+
+    private fun ByteArrayOutputStream.put(opCode: OpCode) {
+        write(opCode.byte.toInt())
     }
 
-    private fun ByteBuffer.put(opSpecifier: OpSpecifier) {
-        put(opSpecifier.byte)
+    private fun ByteArrayOutputStream.putInt(i: Int) {
+        write(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(i).array())
+    }
+
+    private fun ByteArrayOutputStream.putLong(l: Long) {
+        write(ByteBuffer.allocate(Long.SIZE_BYTES).putLong(l).array())
+    }
+
+    private fun ByteArrayOutputStream.putDouble(d: Double) {
+        write(ByteBuffer.allocate(8).putDouble(d).array())
     }
 
     private val Sym.index: Int get() {
