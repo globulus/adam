@@ -109,6 +109,8 @@ class Decompiler(private val input: CompilerOutput) {
     }
 
     private fun decompBlock() {
+        val skipLen = nextInt
+        print("to skip goto: $skipLen ")
         val argLen = nextByte
         if (argLen > 0) {
             decompStructList(OpCode.BLOCK, argLen)
@@ -130,7 +132,11 @@ class Decompiler(private val input: CompilerOutput) {
             println()
         }
         for (i in 0 until len) {
-            decompOpCode(i < len - 1)
+            val skipPos = nextInt
+            println("arg $i skip at $skipPos")
+            while (buffer.position() < skipPos) {
+                decompOpCode(i < len - 1)
+            }
         }
         il--
     }

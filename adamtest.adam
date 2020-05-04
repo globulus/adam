@@ -7,7 +7,8 @@
 adam Num [
     {[Num arg] Num} =,
     {[Num arg] Num} +,
-    {Num} -
+    {Num} -,
+    {Str} print
 ]
 adam Str [
     {Num} len,
@@ -33,7 +34,8 @@ adam s Str
 
 l = 5
 r = (l + 4)
-print "toPrint"
+print "r is"
+print r
 
 {[Num a, Num b, Num c, Num d, {[Num a, {[Str arg] Num} block] Num} go]
     do(5, 6)
