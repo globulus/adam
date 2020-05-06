@@ -7,6 +7,7 @@
 adam Num [
     {[Num arg] Num} =,
     {[Num arg] Num} +,
+    {[Num arg] Num} <,
     {Num} -,
     {Str} print
 ]
@@ -36,6 +37,13 @@ l = 5
 r = (l + 4)
 print "r is"
 print r
+l = (if (r < 8) {
+    3
+} else {
+    4
+})
+print "l is"
+print l
 
 {[Num a, Num b, Num c, Num d, {[Num a, {[Str arg] Num} block] Num} go]
     do(5, 6)

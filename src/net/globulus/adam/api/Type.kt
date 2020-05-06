@@ -1,22 +1,27 @@
 package net.globulus.adam.api
 
+import net.globulus.adam.frontend.parser.TypeInfernal.doesntMatch
+
 interface Type {
     var alias: Sym?
+    val scope: Scope
     fun replacing(genTable: GenTable): Type
-    infix fun matches(other: Type?) = this == other
-    infix fun doesntMatch(other: Type?) = !matches(other)
 }
 
 class Blockdef(
+    override val scope: Scope,
     var gens: GenList?,
     val rec: Type?,
     val args: StructList?,
     val ret: Type
 ) : Type {
+
     override var alias: Sym? = null
 
+    val isPrimitive = gens == null && (args?.props?.size ?: 0) == 0
+
     override fun replacing(genTable: GenTable): Type {
-        return Blockdef(gens, rec?.replacing(genTable) as? Sym, args?.replacing(genTable) as? StructList, ret.replacing(genTable))
+        return Blockdef(scope, gens, rec?.replacing(genTable) as? Sym, args?.replacing(genTable) as? StructList, ret.replacing(genTable))
     }
 
     override fun toString(): String {
@@ -43,20 +48,21 @@ class Blockdef(
 
 class Vararg(val embedded: Type) : Type {
     override var alias: Sym? = null
+    override val scope = embedded.scope
 
     override fun replacing(genTable: GenTable): Type {
         return Vararg(embedded.replacing(genTable))
     }
 
-    override fun matches(other: Type?): Boolean {
-        if (this == other) {
-            return true
-        }
-        if (other !is Vararg) {
-            return false
-        }
-        return embedded matches other.embedded
-    }
+//    override fun matches(other: Type?): Boolean {
+//        if (this == other) {
+//            return true
+//        }
+//        if (other !is Vararg) {
+//            return false
+//        }
+//        return embedded matches other.embedded
+//    }
 
     override fun toString(): String {
         return "${alias ?: embedded}..."
@@ -65,20 +71,21 @@ class Vararg(val embedded: Type) : Type {
 
 class Optional(val embedded: Type) : Type {
     override var alias: Sym? = null
+    override val scope = embedded.scope
 
     override fun replacing(genTable: GenTable): Type {
         return Optional(embedded.replacing(genTable))
     }
 
-    override fun matches(other: Type?): Boolean {
-        if (this == other) {
-            return true
-        }
-        if (other !is Optional) {
-            return false
-        }
-        return embedded matches other.embedded
-    }
+//    override fun matches(other: Type?): Boolean {
+//        if (this == other) {
+//            return true
+//        }
+//        if (other !is Optional) {
+//            return false
+//        }
+//        return embedded matches other.embedded
+//    }
 
     override fun toString(): String {
         return "${alias ?: embedded}\""

@@ -22,6 +22,8 @@ import java.util.*
 class Parser(private val config: ParserConfig,
              private val tokens: List<Token>) {
 
+    private lateinit var typedefStart: Sym
+
     private var current = 0
 
     private val scopeStack = Stack<Scope>()
@@ -31,7 +33,9 @@ class Parser(private val config: ParserConfig,
 
     init {
         // Init root scope and add primitive types to it
-        scopeStack += Scope(null)
+        scopeStack += Scope(null).also {
+            typedefStart = Sym(it,"adam")
+        }
     }
 
     fun parse(): List<Expr> {
@@ -45,7 +49,7 @@ class Parser(private val config: ParserConfig,
     }
 
     private fun stmtLine(): Expr? {
-        val stmtsExprs =  stmt(false, TokenType.NEWLINE)
+        val stmtsExprs =  stmt(false, null, TokenType.NEWLINE)
         return if (stmtsExprs.isNotEmpty()) {
             if (stmtsExprs.size != 1) {
                 throw ParseException(previous, "More than one expression on a line, desugaring failed")
@@ -56,16 +60,17 @@ class Parser(private val config: ParserConfig,
         }
     }
 
-    private fun valueLine(delimiter: TokenType): Expr {
-        val exprs = stmt(true, TokenType.COMMA, TokenType.NEWLINE, delimiter)
+    private fun valueLine(delimiter: TokenType, initialExpr: Expr? = null): Expr {
+        val exprs = stmt(true, initialExpr, TokenType.COMMA, TokenType.NEWLINE, delimiter)
         if (exprs.size != 1) {
             throw ParseException(previous, "More than one expression in a grouping, desugaring failed")
         }
         return exprs[0]
     }
 
-    private fun stmt(rollBack: Boolean, vararg delimiters: TokenType): List<Expr> {
+    private fun stmt(rollBack: Boolean, initialExpr: Expr?, vararg delimiters: TokenType): List<Expr> {
         val exprs = mutableListOf<Expr>()
+        initialExpr?.let { exprs += it }
         while (!isAtEnd && !match(*delimiters)) {
             // Check if the line is a typedef or an expr
             if (typedef()) {
@@ -83,14 +88,15 @@ class Parser(private val config: ParserConfig,
     }
 
     private fun typedef(): Boolean {
-        if (peek.literal == TYPEDEF_START) {
+        if (peek.literal == typedefStart) {
             advance()
             val sym = consumeSym("Need Sym for typedef")
             currentlyDefinedType = CurrentlyDefinedType(sym)
-            val type = type().apply { alias = sym }
+            val type = type()
             currentlyDefinedType = null
             consume(TokenType.NEWLINE, "Need newline after typedef")
             ParserLog.v("Set type alias for $sym as $type")
+            type.alias = sym
             currentScope.typeAliases.putIfAbsent(sym, type)
             return true
         }
@@ -116,7 +122,7 @@ class Parser(private val config: ParserConfig,
         val typeGens = if (sym == currentlyDefinedType?.sym) {
             currentlyDefinedType!!.gens
         } else {
-            TypeInfernal.infer(currentScope, sym, true).let {
+            TypeInfernal.infer(currentScope, sym).let {
                 when (it) {
                     is Blockdef -> it.gens
                     is StructList -> it.gens
@@ -157,13 +163,13 @@ class Parser(private val config: ParserConfig,
             }
             val ret = type()
             consume(TokenType.RIGHT_BRACE, "Expected } at the end of blockdef")
-            return Blockdef(gens, rec, args, ret)
+            return Blockdef(currentScope, gens, rec, args, ret)
         }
         return structList(gens)
     }
 
     private fun structList(gens: GenList? = null): StructList {
-        return StructList(gens, parseListWithAtLeastOneElement("struct") {
+        return StructList(currentScope, gens, parseListWithAtLeastOneElement("struct") {
             val type = type().apply {
                 if (this is Blockdef) {
                     this.gens = gens
@@ -182,7 +188,7 @@ class Parser(private val config: ParserConfig,
 
     private fun genList(): GenList? {
         return if (check(TokenType.LEFT_BRACKET)) {
-            GenList(parseListWithAtLeastOneElement("gen") {
+            GenList(currentScope, parseListWithAtLeastOneElement("gen") {
                 var type: Type? = type()
                 val sym: Sym
                 if (type is Sym) {
@@ -243,10 +249,16 @@ class Parser(private val config: ParserConfig,
         val storedCurrent = current
         val args = try {
             argList()
-        } catch (e: ParseException) { // Let's try it as a value line
+        } catch (e: Exception) { // Let's try it as a value line
             current = storedCurrent
-            val expr = valueLine(TokenType.RIGHT_PAREN)
-            ArgList(currentScope, listOf(RawList.Prop(expr)))
+            try {
+                val expr = valueLine(TokenType.RIGHT_PAREN)
+                ArgList(currentScope, listOf(RawList.Prop(expr)))
+            } catch (e: Exception) { // Still doesn't work, maybe we need the getter in there as well
+                current = storedCurrent
+                val expr = valueLine(TokenType.RIGHT_PAREN, getter)
+                ArgList(currentScope, expr)
+            }
         }
         try {
             val call = Call(currentScope, getter, args).validate()
@@ -257,8 +269,8 @@ class Parser(private val config: ParserConfig,
             } else {
                 call
             }
-        } catch (e: ValidationException) {
-            ParserLog.v("Validation exception thrown while validation a call: ${e.message}")
+        } catch (e: Exception) {
+            ParserLog.v("Exception while attempting to construct a call: ${e.message}")
             // TODO optimize, return both getter and grouping at the same time since both are known at this point
             if (args.props.size == 1) { // This might be a getter + grouping, return getter and reset current
                 current = storedCurrent
@@ -277,18 +289,18 @@ class Parser(private val config: ParserConfig,
         val origin = if (primary) {
             primitive()
         } else {
-            consumeSym("Expected a Sym for secondary getter").patchType(currentScope, false)
+            consumeSym("Expected a Sym for secondary getter")//.patchType(currentScope, false)
         }
         val syms = mutableListOf<Sym>()
         while (match(TokenType.DOT)) {
             syms += consumeSym("Expected a Sym after . in Getter")
         }
-        return Getter(origin, syms).patchType(currentScope, false)
+        return Getter(origin, syms).patchType(currentScope)
     }
 
     private fun primitive(): Expr {
         if (match(TokenType.SYM)) {
-            return previousSym.patchType(currentScope, true)
+            return previousSym//.patchType(currentScope, true)
         }
         if (match(TokenType.NUM, TokenType.STR)) {
             return (previous.literal as Expr).apply {
@@ -448,7 +460,9 @@ class Parser(private val config: ParserConfig,
 
     private val previous get() = tokens[current - 1]
 
-    private val previousSym get() = previous.literal as Sym
+    private val previousSym get() = (previous.literal as Sym).apply {
+        scope = currentScope
+    }
 
     private fun peekSequence(vararg types: TokenType): Boolean {
         if (current + types.size >= tokens.size) {
@@ -474,9 +488,5 @@ class Parser(private val config: ParserConfig,
                 this.gens = gens
             }
         }
-    }
-
-    companion object {
-        private val TYPEDEF_START = Sym("adam")
     }
 }
